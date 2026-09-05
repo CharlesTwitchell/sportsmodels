@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NFL Win Predictor — a field-side stats model</title>
+<meta name="description" content="A logistic regression model that predicts NFL game winners from common team stats. Pick two teams and see the call.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏈</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --turf-deep:#132A20;
+    --turf-mid:#1D3B2A;
+    --turf-line: rgba(243,241,231,0.14);
+    --chalk:#F3F1E7;
+    --chalk-dim: rgba(243,241,231,0.62);
+    --gold:#D9A93C;
+    --gold-dim: rgba(217,169,60,0.35);
+    --endzone:#B5402F;
+    --endzone-dim: rgba(181,64,47,0.35);
+    --ink:#0E1712;
+    --radius: 2px;
+    --max: 1080px;
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--turf-deep);
+    background-image:
+      repeating-linear-gradient(180deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 84px);
+    color:var(--chalk);
+    font-family:'IBM Plex Sans', system-ui, sans-serif;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3, .display{
+    font-family:'Anton', 'IBM Plex Sans', sans-serif;
+    font-weight:400;
+    letter-spacing:0.01em;
+    color:var(--chalk);
+    margin:0;
+  }
+  .num, .mono{ font-family:'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+
+  a{ color:var(--gold); }
+
+  .wrap{ max-width:var(--max); margin:0 auto; padding:0 28px; }
+
+  /* ---------- header ---------- */
+  header.site{
+    padding:26px 0 18px;
+    border-bottom:1px solid var(--turf-line);
+  }
+  header.site .wrap{ display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .mark{ display:flex; align-items:baseline; gap:10px; }
+  .mark .ball{ font-size:1.1rem; }
+  .mark span{ font-family:'Anton'; font-size:1.35rem; letter-spacing:0.02em; }
+  header.site nav{ display:flex; gap:22px; font-size:0.92rem; }
+  header.site nav a{ text-decoration:none; color:var(--chalk-dim); border-bottom:1px solid transparent; padding-bottom:2px; }
+  header.site nav a:hover{ color:var(--chalk); border-color:var(--gold-dim); }
+
+  section{ padding:64px 0; border-bottom:1px solid var(--turf-line); }
+  section:last-of-type{ border-bottom:none; }
+  section > .wrap > .kicker{
+    font-size:0.85rem; color:var(--gold); margin:0 0 8px;
+  }
+  section h2{ font-size:clamp(1.6rem, 3.4vw, 2.3rem); margin-bottom:14px; }
+  section > .wrap > p.lede{ max-width:62ch; color:var(--chalk-dim); font-size:1.02rem; }
+
+  /* ---------- hero / predictor ---------- */
+  .hero{ padding-top:56px; }
+  .hero-grid{ display:grid; grid-template-columns: 1.05fr 0.95fr; gap:48px; align-items:start; }
+  @media (max-width:860px){ .hero-grid{ grid-template-columns:1fr; } }
+
+  .hero h1{ font-size:clamp(2.2rem, 5.4vw, 3.6rem); line-height:1.04; max-width:14ch; }
+  .hero p.lede{ margin-top:18px; max-width:46ch; color:var(--chalk-dim); font-size:1.05rem; }
+  .hero .meta{ margin-top:26px; display:flex; gap:28px; flex-wrap:wrap; }
+  .hero .meta div{ min-width:100px; }
+  .hero .meta .num{ font-family:'Anton'; font-size:1.9rem; color:var(--gold); }
+  .hero .meta .lbl{ font-size:0.8rem; color:var(--chalk-dim); margin-top:2px; }
+
+  /* scoreboard */
+  .scoreboard{
+    background:var(--turf-mid);
+    border-top:3px solid var(--gold);
+    padding:26px 24px 24px;
+  }
+  .sb-row{ display:flex; align-items:center; gap:10px; }
+  .sb-select{ flex:1; min-width:0; }
+  .sb-select label{ display:block; font-size:0.72rem; color:var(--chalk-dim); margin-bottom:6px; }
+  select{
+    width:100%;
+    background:var(--turf-deep);
+    color:var(--chalk);
+    border:1px solid var(--turf-line);
+    border-radius:var(--radius);
+    padding:10px 10px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.92rem;
+    appearance:none;
+    -webkit-appearance:none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--gold) 50%), linear-gradient(135deg, var(--gold) 50%, transparent 50%);
+    background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat:no-repeat;
+  }
+  select:focus-visible, button:focus-visible, input:focus-visible{ outline:2px solid var(--gold); outline-offset:2px; }
+  .sb-vs{ font-family:'Anton'; color:var(--gold-dim); font-size:1rem; padding-top:18px; }
+
+  .sb-readout{ margin-top:22px; }
+  .sb-names{ display:flex; justify-content:space-between; font-size:0.86rem; color:var(--chalk-dim); }
+  .sb-names .home{ color:var(--gold); }
+  .sb-digits{ display:flex; justify-content:space-between; align-items:baseline; margin-top:4px; }
+  .sb-digits .num{ font-family:'Anton'; font-size:clamp(2.6rem, 8vw, 4rem); }
+  .sb-digits .home-num{ color:var(--gold); }
+  .sb-digits .away-num{ color:var(--endzone); }
+  .sb-bar{ height:8px; margin-top:14px; background:var(--endzone-dim); position:relative; overflow:hidden; }
+  .sb-bar .fill{ position:absolute; inset:0 auto 0 0; background:var(--gold); width:50%; transition:width 0.4s ease; }
+  .sb-call{ margin-top:14px; font-size:0.92rem; color:var(--chalk-dim); }
+  .sb-call strong{ color:var(--chalk); }
+
+  /* ---------- generic layout blocks ---------- */
+  .metric-row{ display:flex; gap:0; margin-top:36px; flex-wrap:wrap; border-top:1px solid var(--turf-line); }
+  .metric{ flex:1; min-width:150px; padding:22px 24px; border-right:1px solid var(--turf-line); }
+  .metric:last-child{ border-right:none; }
+  .metric .num{ font-family:'Anton'; font-size:2.1rem; color:var(--gold); }
+  .metric .lbl{ font-size:0.82rem; color:var(--chalk-dim); margin-top:4px; }
+
+  .two-col{ display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:30px; }
+  @media (max-width:760px){ .two-col{ grid-template-columns:1fr; } }
+  .two-col h3{ font-size:1.05rem; margin-bottom:10px; font-family:'IBM Plex Sans'; font-weight:600; }
+  .two-col p{ color:var(--chalk-dim); font-size:0.95rem; }
+
+  /* ---------- feature bars ---------- */
+  .bars{ margin-top:34px; }
+  .bar-row{ display:grid; grid-template-columns: 190px 1fr 52px; align-items:center; gap:14px; padding:9px 0; border-bottom:1px solid var(--turf-line); }
+  .bar-row:first-child{ border-top:1px solid var(--turf-line); }
+  .bar-name{ font-size:0.88rem; color:var(--chalk-dim); }
+  .bar-track{ position:relative; height:10px; background:var(--turf-mid); }
+  .bar-track .fill{ position:absolute; inset:0 auto 0 0; background:var(--gold); }
+  .bar-val{ font-size:0.82rem; text-align:right; color:var(--chalk-dim); }
+  @media (max-width:560px){
+    .bar-row{ grid-template-columns: 108px 1fr 40px; gap:8px; }
+    .bar-name{ font-size:0.76rem; }
+  }
+
+  /* ---------- table ---------- */
+  .table-wrap{ margin-top:30px; overflow-x:auto; border-top:1px solid var(--turf-line); }
+  table{ border-collapse:collapse; width:100%; min-width:920px; font-size:0.85rem; }
+  th, td{ text-align:right; padding:9px 12px; white-space:nowrap; border-bottom:1px solid var(--turf-line); }
+  th:first-child, td:first-child{ text-align:left; position:sticky; left:0; background:var(--turf-deep); }
+  th{ font-weight:600; color:var(--gold); cursor:pointer; user-select:none; font-size:0.78rem; }
+  th:hover{ color:var(--chalk); }
+  th .arrow{ font-size:0.7em; margin-left:3px; opacity:0.7; }
+  tbody tr:hover td{ background:rgba(217,169,60,0.06); }
+  tbody tr:hover td:first-child{ background:rgba(217,169,60,0.10); }
+
+  /* ---------- methodology ---------- */
+  .note{
+    margin-top:26px;
+    padding:18px 20px;
+    border-left:3px solid var(--gold);
+    background:var(--turf-mid);
+    font-size:0.92rem;
+    color:var(--chalk-dim);
+    max-width:70ch;
+  }
+  .note code{ font-family:'IBM Plex Mono'; background:rgba(0,0,0,0.25); padding:1px 5px; border-radius:2px; color:var(--chalk); font-size:0.88em; }
+
+  footer{ padding:32px 0 48px; }
+  footer .wrap{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; font-size:0.82rem; color:var(--chalk-dim); }
+
+  ::selection{ background:var(--gold); color:var(--ink); }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <div class="mark"><span class="ball">🏈</span><span>NFL Win Predictor</span></div>
+    <nav>
+      <a href="#model">The model</a>
+      <a href="#signals">What matters</a>
+      <a href="#table">League table</a>
+      <a href="#method">Methodology</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <h1>Pick two teams.<br>Get the call.</h1>
+        <p class="lede">A logistic regression model reads twelve real box-score stats — yardage, third downs, turnovers, time of possession — pulled from actual NFL play-by-play data, and turns the gap between two teams into a win probability.</p>
+        <div class="meta">
+          <div><div class="num" id="hero-acc">—</div><div class="lbl">Model accuracy</div></div>
+          <div><div class="num" id="hero-auc">—</div><div class="lbl">ROC AUC</div></div>
+          <div><div class="num" id="hero-games">—</div><div class="lbl">Real games trained on</div></div>
+        </div>
+      </div>
+
+      <div class="scoreboard">
+        <div class="sb-row">
+          <div class="sb-select">
+            <label for="home-select">Home</label>
+            <select id="home-select"></select>
+          </div>
+          <div class="sb-vs">VS</div>
+          <div class="sb-select">
+            <label for="away-select">Away</label>
+            <select id="away-select"></select>
+          </div>
+        </div>
+
+        <div class="sb-readout">
+          <div class="sb-names">
+            <span class="home" id="sb-home-name">—</span>
+            <span class="away" id="sb-away-name">—</span>
+          </div>
+          <div class="sb-digits">
+            <span class="num home-num" id="sb-home-pct">50</span>
+            <span class="num away-num" id="sb-away-pct">50</span>
+          </div>
+          <div class="sb-bar"><div class="fill" id="sb-fill"></div></div>
+          <div class="sb-call" id="sb-call">Pick two teams to run the model.</div>
+          <div class="sb-call" id="sb-season" style="margin-top:2px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="model">
+  <div class="wrap">
+    <p class="kicker">The model</p>
+    <h2>Two models, one question: who wins?</h2>
+    <p class="lede">A logistic regression and a random forest were both trained on the same stat sheet: one team's full season minus the other's, drawn from real NFL play-by-play data. Each team's <em>completed</em> season predicts the <em>following</em> season's games — never its own — so the model is never peeking at results it's trying to predict. Logistic regression powers the live predictor above because its weights are easy to inspect; the random forest is shown here for comparison.</p>
+
+    <div class="metric-row">
+      <div class="metric"><div class="num" id="m-lr-acc">—</div><div class="lbl">Logistic regression accuracy</div></div>
+      <div class="metric"><div class="num" id="m-lr-auc">—</div><div class="lbl">Logistic regression AUC</div></div>
+      <div class="metric"><div class="num" id="m-rf-acc">—</div><div class="lbl">Random forest accuracy</div></div>
+      <div class="metric"><div class="num" id="m-rf-auc">—</div><div class="lbl">Random forest AUC</div></div>
+    </div>
+    <p style="margin-top:14px; font-size:0.85rem; color:var(--chalk-dim);" id="seasons-note"></p>
+
+    <div class="two-col">
+      <div>
+        <h3>Why not higher?</h3>
+        <p>Predicting a season from the season before is a harder problem than it sounds — rosters turn over, coaches change, and last year's numbers only say so much about this year's team. Models that instead use in-season, game-by-game form tend to score higher; this one trades some accuracy for a cleaner, honest test: no stat here was ever generated after the game it's trying to predict.</p>
+      </div>
+      <div>
+        <h3>Reading the scoreboard</h3>
+        <p>The percentage is the home team's chance to win based on the stat gap between the two teams' most recently completed seasons, plus a standard home-field bump. It is not a point-spread or a score prediction — just a probability.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="signals">
+  <div class="wrap">
+    <p class="kicker">What matters</p>
+    <h2>What moves the needle</h2>
+    <p class="lede">Ranked by how much each stat contributed to the random forest's decisions. The gap between two teams' points and yardage per game carries the most weight; penalties carry the least.</p>
+    <div class="bars" id="bars"></div>
+  </div>
+</section>
+
+<section id="table">
+  <div class="wrap">
+    <p class="kicker">League table</p>
+    <h2>Every team's stat line</h2>
+    <p class="lede">The season averages behind the predictor above. Click a column to sort.</p>
+    <div class="table-wrap">
+      <table id="team-table">
+        <thead><tr id="table-head"></tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="method">
+  <div class="wrap">
+    <p class="kicker">Methodology</p>
+    <h2>Where this data comes from</h2>
+    <p class="lede">Every number on this page comes from real NFL play-by-play and schedule data, pulled with <a href="https://github.com/nflverse/nfl_data_py" target="_blank" rel="noopener">nfl_data_py</a> (which wraps the open <a href="https://github.com/nflverse" target="_blank" rel="noopener">nflverse</a> data project). The league table below shows each team's actual 2025 season. The model was trained on eleven years of history: every team's completed season, from 2015 through 2024, paired with the games that team played the following year.</p>
+    <div class="note">
+      This page is a static export — the training run happens once, offline, and its results (team stats and model weights) are baked into this file so the page can run standalone on GitHub Pages with no server or live data pull. To refresh it with a new season, rerun the pipeline and retrain: <code>python nfl_data_pipeline.py</code> pulls the latest play-by-play and schedules, <code>python train_real_model.py</code> retrains and writes <code>model_export_real.json</code>, and that JSON replaces the <code>MODEL</code> object in this page's script.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Built with a logistic regression model on twelve common NFL team stats.</span>
+    <span>Trained on real 2015–2025 NFL data via nfl_data_py.</span>
+  </div>
+</footer>
+
+<script>
+const MODEL = {"features": ["win_pct", "points_per_game", "points_allowed_per_game", "yards_per_game", "yards_allowed_per_game", "turnover_margin", "third_down_pct", "red_zone_pct", "sacks_per_game", "sacks_allowed_per_game", "time_of_possession_pct", "penalty_yards_per_game"], "scaler_mean": [0.0020167470114526146, 0.010931883411820423, -0.04048645749157078, 0.1900705687296234, 0.09023462535179855, 0.0024260177780254695, 1.0974358124111929e-05, 0.0007605509223304796, 0.005768105442082085, 0.002934558475213866, -0.00026841936181770036, 0.18490504918215497], "scaler_scale": [0.26174610229816725, 5.903989391251914, 4.531593961567894, 47.97412043598941, 41.99742306275522, 0.7347767296637406, 0.06590356882057544, 0.10096053016521132, 0.6969223312869391, 0.9259455681445733, 0.03324451059261864, 10.40599641955291], "log_reg_coef": [0.04471202441604805, 0.20582738744035858, -0.1056492112426622, 0.10510452045068412, -0.012549828351440013, 0.013989887310412478, -0.05068372287796468, 0.06074124847282519, 0.08265958765575328, -0.12161340693328072, 0.014135190575988058, -0.05559902891625654], "log_reg_intercept": 0.18867284593202804, "rf_importances": {"win_pct_diff": 0.10731774055799605, "points_per_game_diff": 0.16988775293245054, "points_allowed_per_game_diff": 0.07953546879565847, "yards_per_game_diff": 0.11680239929063949, "yards_allowed_per_game_diff": 0.05921488515254906, "turnover_margin_diff": 0.07497568996179801, "third_down_pct_diff": 0.06382680040074844, "red_zone_pct_diff": 0.07245547775315757, "sacks_per_game_diff": 0.0779761310126524, "sacks_allowed_per_game_diff": 0.07668678140932667, "time_of_possession_pct_diff": 0.05014535213184378, "penalty_yards_per_game_diff": 0.051175520601179414}, "metrics": {"logistic_regression": {"accuracy": 0.571969696969697, "auc": 0.6055700231481482}, "random_forest": {"accuracy": 0.5700757575757576, "auc": 0.6008680555555557}, "n_games": 2639, "n_test": 528, "seasons_used": "2016-2025", "stats_season": 2025}, "teams": [{"team": "ARI", "team_name": "Arizona Cardinals", "win_pct": 0.1765, "points_per_game": 20.8824, "points_allowed_per_game": 28.7059, "yards_per_game": 326.0588, "yards_allowed_per_game": 360.2941, "turnover_margin": -0.0588, "third_down_pct": 0.4152, "red_zone_pct": 0.5588, "sacks_per_game": 1.7647, "sacks_allowed_per_game": 3.4706, "time_of_possession_pct": 0.4945, "penalty_yards_per_game": 49.5294}, {"team": "ATL", "team_name": "Atlanta Falcons", "win_pct": 0.4706, "points_per_game": 20.7647, "points_allowed_per_game": 23.5882, "yards_per_game": 334.2353, "yards_allowed_per_game": 327.5294, "turnover_margin": 0.2941, "third_down_pct": 0.3333, "red_zone_pct": 0.6491, "sacks_per_game": 3.3529, "sacks_allowed_per_game": 1.5294, "time_of_possession_pct": 0.4944, "penalty_yards_per_game": 48.1765}, {"team": "BAL", "team_name": "Baltimore Ravens", "win_pct": 0.4706, "points_per_game": 24.9412, "points_allowed_per_game": 23.4118, "yards_per_game": 333.4118, "yards_allowed_per_game": 355.8824, "turnover_margin": -0.1765, "third_down_pct": 0.4089, "red_zone_pct": 0.5974, "sacks_per_game": 1.7647, "sacks_allowed_per_game": 2.6471, "time_of_possession_pct": 0.4864, "penalty_yards_per_game": 43.8824}, {"team": "BUF", "team_name": "Buffalo Bills", "win_pct": 0.7059, "points_per_game": 28.2941, "points_allowed_per_game": 21.4706, "yards_per_game": 378.1176, "yards_allowed_per_game": 293.6471, "turnover_margin": 0.1176, "third_down_pct": 0.4476, "red_zone_pct": 0.7229, "sacks_per_game": 2.1176, "sacks_allowed_per_game": 2.3529, "time_of_possession_pct": 0.5524, "penalty_yards_per_game": 49.8824}, {"team": "CAR", "team_name": "Carolina Panthers", "win_pct": 0.4706, "points_per_game": 18.2941, "points_allowed_per_game": 22.3529, "yards_per_game": 296.9412, "yards_allowed_per_game": 328.3529, "turnover_margin": -0.1765, "third_down_pct": 0.361, "red_zone_pct": 0.5893, "sacks_per_game": 1.7647, "sacks_allowed_per_game": 2.0588, "time_of_possession_pct": 0.4972, "penalty_yards_per_game": 44.8235}, {"team": "CHI", "team_name": "Chicago Bears", "win_pct": 0.6471, "points_per_game": 25.9412, "points_allowed_per_game": 24.4118, "yards_per_game": 370.5882, "yards_allowed_per_game": 362.4118, "turnover_margin": 1.2941, "third_down_pct": 0.4273, "red_zone_pct": 0.6571, "sacks_per_game": 2.0588, "sacks_allowed_per_game": 1.4118, "time_of_possession_pct": 0.5133, "penalty_yards_per_game": 57.0588}, {"team": "CIN", "team_name": "Cincinnati Bengals", "win_pct": 0.3529, "points_per_game": 24.3529, "points_allowed_per_game": 28.9412, "yards_per_game": 330.4706, "yards_allowed_per_game": 382.1176, "turnover_margin": -0.1765, "third_down_pct": 0.4344, "red_zone_pct": 0.7576, "sacks_per_game": 2.0588, "sacks_allowed_per_game": 2.1176, "time_of_possession_pct": 0.5019, "penalty_yards_per_game": 37.2353}, {"team": "CLE", "team_name": "Cleveland Browns", "win_pct": 0.2941, "points_per_game": 16.4118, "points_allowed_per_game": 22.2941, "yards_per_game": 262.4706, "yards_allowed_per_game": 284.7647, "turnover_margin": -0.4706, "third_down_pct": 0.3362, "red_zone_pct": 0.5532, "sacks_per_game": 3.1176, "sacks_allowed_per_game": 3.0, "time_of_possession_pct": 0.488, "penalty_yards_per_game": 49.4118}, {"team": "DAL", "team_name": "Dallas Cowboys", "win_pct": 0.4118, "points_per_game": 27.7059, "points_allowed_per_game": 30.0588, "yards_per_game": 393.0, "yards_allowed_per_game": 378.5294, "turnover_margin": -0.5882, "third_down_pct": 0.4115, "red_zone_pct": 0.6234, "sacks_per_game": 2.0588, "sacks_allowed_per_game": 1.8235, "time_of_possession_pct": 0.5034, "penalty_yards_per_game": 66.8235}, {"team": "DEN", "team_name": "Denver Broncos", "win_pct": 0.8235, "points_per_game": 23.5882, "points_allowed_per_game": 18.2941, "yards_per_game": 344.1765, "yards_allowed_per_game": 278.4118, "turnover_margin": -0.1176, "third_down_pct": 0.412, "red_zone_pct": 0.6324, "sacks_per_game": 4.0, "sacks_allowed_per_game": 1.3529, "time_of_possession_pct": 0.5168, "penalty_yards_per_game": 65.3529}, {"team": "DET", "team_name": "Detroit Lions", "win_pct": 0.5294, "points_per_game": 28.2941, "points_allowed_per_game": 24.2941, "yards_per_game": 373.9412, "yards_allowed_per_game": 333.2353, "turnover_margin": 0.2353, "third_down_pct": 0.3879, "red_zone_pct": 0.6962, "sacks_per_game": 2.8824, "sacks_allowed_per_game": 2.2941, "time_of_possession_pct": 0.5064, "penalty_yards_per_game": 42.2353}, {"team": "GB", "team_name": "Green Bay Packers", "win_pct": 0.5882, "points_per_game": 23.0, "points_allowed_per_game": 21.1765, "yards_per_game": 333.8235, "yards_allowed_per_game": 312.4706, "turnover_margin": 0.0, "third_down_pct": 0.4878, "red_zone_pct": 0.6324, "sacks_per_game": 2.1176, "sacks_allowed_per_game": 1.7059, "time_of_possession_pct": 0.4902, "penalty_yards_per_game": 48.1176}, {"team": "HOU", "team_name": "Houston Texans", "win_pct": 0.7059, "points_per_game": 23.7647, "points_allowed_per_game": 17.3529, "yards_per_game": 327.5882, "yards_allowed_per_game": 277.8235, "turnover_margin": 0.9412, "third_down_pct": 0.3723, "red_zone_pct": 0.5075, "sacks_per_game": 2.7647, "sacks_allowed_per_game": 1.8235, "time_of_possession_pct": 0.5302, "penalty_yards_per_game": 58.1765}, {"team": "IND", "team_name": "Indianapolis Colts", "win_pct": 0.4706, "points_per_game": 27.4118, "points_allowed_per_game": 24.2353, "yards_per_game": 346.8235, "yards_allowed_per_game": 350.7059, "turnover_margin": 0.0, "third_down_pct": 0.4256, "red_zone_pct": 0.6842, "sacks_per_game": 2.2941, "sacks_allowed_per_game": 1.7059, "time_of_possession_pct": 0.4868, "penalty_yards_per_game": 50.4706}, {"team": "JAX", "team_name": "Jacksonville Jaguars", "win_pct": 0.7647, "points_per_game": 27.8824, "points_allowed_per_game": 19.7647, "yards_per_game": 338.5294, "yards_allowed_per_game": 304.5882, "turnover_margin": 0.6471, "third_down_pct": 0.3917, "red_zone_pct": 0.6538, "sacks_per_game": 1.8824, "sacks_allowed_per_game": 2.4118, "time_of_possession_pct": 0.5243, "penalty_yards_per_game": 62.5294}, {"team": "KC", "team_name": "Kansas City Chiefs", "win_pct": 0.3529, "points_per_game": 21.2941, "points_allowed_per_game": 19.2941, "yards_per_game": 321.6471, "yards_allowed_per_game": 302.5294, "turnover_margin": -0.1176, "third_down_pct": 0.3744, "red_zone_pct": 0.5821, "sacks_per_game": 2.0588, "sacks_allowed_per_game": 2.7647, "time_of_possession_pct": 0.4986, "penalty_yards_per_game": 55.9412}, {"team": "LV", "team_name": "Las Vegas Raiders", "win_pct": 0.1765, "points_per_game": 14.1765, "points_allowed_per_game": 25.4118, "yards_per_game": 245.6471, "yards_allowed_per_game": 319.0588, "turnover_margin": -0.3529, "third_down_pct": 0.338, "red_zone_pct": 0.5556, "sacks_per_game": 2.1765, "sacks_allowed_per_game": 3.7647, "time_of_possession_pct": 0.463, "penalty_yards_per_game": 53.0}, {"team": "LAC", "team_name": "Los Angeles Chargers", "win_pct": 0.6471, "points_per_game": 21.6471, "points_allowed_per_game": 20.0, "yards_per_game": 334.7647, "yards_allowed_per_game": 286.0588, "turnover_margin": 0.1176, "third_down_pct": 0.4582, "red_zone_pct": 0.5217, "sacks_per_game": 2.6471, "sacks_allowed_per_game": 3.5294, "time_of_possession_pct": 0.5418, "penalty_yards_per_game": 46.2941}, {"team": "LA", "team_name": "Los Angeles Rams", "win_pct": 0.7059, "points_per_game": 30.4706, "points_allowed_per_game": 20.3529, "yards_per_game": 396.4706, "yards_allowed_per_game": 328.2353, "turnover_margin": 0.6471, "third_down_pct": 0.3958, "red_zone_pct": 0.6848, "sacks_per_game": 2.7647, "sacks_allowed_per_game": 1.3529, "time_of_possession_pct": 0.5062, "penalty_yards_per_game": 33.7059}, {"team": "MIA", "team_name": "Miami Dolphins", "win_pct": 0.4118, "points_per_game": 20.4118, "points_allowed_per_game": 24.9412, "yards_per_game": 301.2353, "yards_allowed_per_game": 348.8235, "turnover_margin": -0.2941, "third_down_pct": 0.349, "red_zone_pct": 0.6379, "sacks_per_game": 2.2941, "sacks_allowed_per_game": 2.2353, "time_of_possession_pct": 0.4818, "penalty_yards_per_game": 47.7059}, {"team": "MIN", "team_name": "Minnesota Vikings", "win_pct": 0.5294, "points_per_game": 20.2353, "points_allowed_per_game": 19.5882, "yards_per_game": 276.1176, "yards_allowed_per_game": 283.4118, "turnover_margin": -0.4118, "third_down_pct": 0.3179, "red_zone_pct": 0.6071, "sacks_per_game": 2.8824, "sacks_allowed_per_game": 3.5294, "time_of_possession_pct": 0.4721, "penalty_yards_per_game": 52.1176}, {"team": "NE", "team_name": "New England Patriots", "win_pct": 0.8235, "points_per_game": 28.8235, "points_allowed_per_game": 18.8235, "yards_per_game": 381.7059, "yards_allowed_per_game": 295.7647, "turnover_margin": 0.1176, "third_down_pct": 0.4293, "red_zone_pct": 0.6585, "sacks_per_game": 2.0588, "sacks_allowed_per_game": 2.8235, "time_of_possession_pct": 0.522, "penalty_yards_per_game": 50.2353}, {"team": "NO", "team_name": "New Orleans Saints", "win_pct": 0.3529, "points_per_game": 18.0, "points_allowed_per_game": 22.5294, "yards_per_game": 314.4118, "yards_allowed_per_game": 301.2941, "turnover_margin": -0.1765, "third_down_pct": 0.3946, "red_zone_pct": 0.5, "sacks_per_game": 2.6471, "sacks_allowed_per_game": 2.8824, "time_of_possession_pct": 0.4736, "penalty_yards_per_game": 54.1176}, {"team": "NYG", "team_name": "New York Giants", "win_pct": 0.2353, "points_per_game": 22.4118, "points_allowed_per_game": 25.8235, "yards_per_game": 334.2353, "yards_allowed_per_game": 361.3529, "turnover_margin": -0.0588, "third_down_pct": 0.4018, "red_zone_pct": 0.5946, "sacks_per_game": 2.2941, "sacks_allowed_per_game": 2.8235, "time_of_possession_pct": 0.5083, "penalty_yards_per_game": 63.2353}, {"team": "NYJ", "team_name": "New York Jets", "win_pct": 0.1765, "points_per_game": 17.6471, "points_allowed_per_game": 29.5882, "yards_per_game": 263.6471, "yards_allowed_per_game": 357.1765, "turnover_margin": -1.0588, "third_down_pct": 0.3493, "red_zone_pct": 0.5294, "sacks_per_game": 1.5294, "sacks_allowed_per_game": 3.5294, "time_of_possession_pct": 0.4708, "penalty_yards_per_game": 53.4706}, {"team": "PHI", "team_name": "Philadelphia Eagles", "win_pct": 0.6471, "points_per_game": 22.2941, "points_allowed_per_game": 19.1176, "yards_per_game": 312.4706, "yards_allowed_per_game": 315.0, "turnover_margin": 0.4706, "third_down_pct": 0.3714, "red_zone_pct": 0.7414, "sacks_per_game": 2.4706, "sacks_allowed_per_game": 2.0588, "time_of_possession_pct": 0.4995, "penalty_yards_per_game": 63.1176}, {"team": "PIT", "team_name": "Pittsburgh Steelers", "win_pct": 0.5882, "points_per_game": 23.3529, "points_allowed_per_game": 22.7647, "yards_per_game": 306.2353, "yards_allowed_per_game": 358.2941, "turnover_margin": 0.6471, "third_down_pct": 0.4, "red_zone_pct": 0.6562, "sacks_per_game": 2.8235, "sacks_allowed_per_game": 1.8235, "time_of_possession_pct": 0.4737, "penalty_yards_per_game": 47.2353}, {"team": "SF", "team_name": "San Francisco 49ers", "win_pct": 0.7059, "points_per_game": 25.7059, "points_allowed_per_game": 21.8235, "yards_per_game": 352.7647, "yards_allowed_per_game": 341.0, "turnover_margin": -0.4706, "third_down_pct": 0.4977, "red_zone_pct": 0.6761, "sacks_per_game": 1.1765, "sacks_allowed_per_game": 1.5882, "time_of_possession_pct": 0.5117, "penalty_yards_per_game": 38.2941}, {"team": "SEA", "team_name": "Seattle Seahawks", "win_pct": 0.8235, "points_per_game": 28.4118, "points_allowed_per_game": 17.1765, "yards_per_game": 352.7647, "yards_allowed_per_game": 286.7059, "turnover_margin": -0.1176, "third_down_pct": 0.3981, "red_zone_pct": 0.6164, "sacks_per_game": 2.7647, "sacks_allowed_per_game": 1.5882, "time_of_possession_pct": 0.5001, "penalty_yards_per_game": 46.6471}, {"team": "TB", "team_name": "Tampa Bay Buccaneers", "win_pct": 0.4706, "points_per_game": 22.3529, "points_allowed_per_game": 24.1765, "yards_per_game": 321.2941, "yards_allowed_per_game": 337.8235, "turnover_margin": 0.3529, "third_down_pct": 0.4123, "red_zone_pct": 0.6154, "sacks_per_game": 2.1765, "sacks_allowed_per_game": 2.2353, "time_of_possession_pct": 0.5315, "penalty_yards_per_game": 43.3529}, {"team": "TEN", "team_name": "Tennessee Titans", "win_pct": 0.1765, "points_per_game": 16.7059, "points_allowed_per_game": 28.1176, "yards_per_game": 260.1765, "yards_allowed_per_game": 346.6471, "turnover_margin": -0.3529, "third_down_pct": 0.319, "red_zone_pct": 0.6098, "sacks_per_game": 2.4706, "sacks_allowed_per_game": 3.2941, "time_of_possession_pct": 0.4856, "penalty_yards_per_game": 58.0}, {"team": "WAS", "team_name": "Washington Commanders", "win_pct": 0.2941, "points_per_game": 20.9412, "points_allowed_per_game": 26.5294, "yards_per_game": 319.8235, "yards_allowed_per_game": 385.6471, "turnover_margin": -0.7059, "third_down_pct": 0.3757, "red_zone_pct": 0.6964, "sacks_per_game": 2.4706, "sacks_allowed_per_game": 2.1765, "time_of_possession_pct": 0.4736, "penalty_yards_per_game": 53.7059}]};
+
+const FEATURE_LABELS = {
+  win_pct: "Win %",
+  points_per_game: "Points / game",
+  points_allowed_per_game: "Points allowed / game",
+  yards_per_game: "Yards / game",
+  yards_allowed_per_game: "Yards allowed / game",
+  turnover_margin: "Turnover margin",
+  third_down_pct: "3rd down %",
+  red_zone_pct: "Red zone %",
+  sacks_per_game: "Sacks / game",
+  sacks_allowed_per_game: "Sacks allowed / game",
+  time_of_possession_pct: "Time of possession",
+  penalty_yards_per_game: "Penalty yards / game",
+};
+
+const FMT = {
+  win_pct: v => (v*100).toFixed(1)+"%",
+  points_per_game: v => v.toFixed(1),
+  points_allowed_per_game: v => v.toFixed(1),
+  yards_per_game: v => v.toFixed(0),
+  yards_allowed_per_game: v => v.toFixed(0),
+  turnover_margin: v => (v>0?"+":"")+v.toFixed(2),
+  third_down_pct: v => (v*100).toFixed(1)+"%",
+  red_zone_pct: v => (v*100).toFixed(1)+"%",
+  sacks_per_game: v => v.toFixed(1),
+  sacks_allowed_per_game: v => v.toFixed(1),
+  time_of_possession_pct: v => (v*100).toFixed(1)+"%",
+  penalty_yards_per_game: v => v.toFixed(1),
+};
+
+function teamLabel(t){ return t.team_name || t.team; }
+
+function sigmoid(x){ return 1/(1+Math.exp(-x)); }
+
+function predictHomeWinProb(homeTeam, awayTeam){
+  let logit = MODEL.log_reg_intercept;
+  MODEL.features.forEach((f, i) => {
+    const diff = homeTeam[f] - awayTeam[f];
+    const standardized = (diff - MODEL.scaler_mean[i]) / MODEL.scaler_scale[i];
+    logit += MODEL.log_reg_coef[i] * standardized;
+  });
+  return sigmoid(logit);
+}
+
+function populateSelects(){
+  const homeSel = document.getElementById("home-select");
+  const awaySel = document.getElementById("away-select");
+  MODEL.teams.forEach((t, i) => {
+    const o1 = document.createElement("option"); o1.value = i; o1.textContent = teamLabel(t);
+    const o2 = document.createElement("option"); o2.value = i; o2.textContent = teamLabel(t);
+    homeSel.appendChild(o1); awaySel.appendChild(o2);
+  });
+  // Default to the best- and worst-record teams so the first view shows contrast
+  let bestIdx = 0, worstIdx = 0;
+  MODEL.teams.forEach((t, i) => {
+    if (t.win_pct > MODEL.teams[bestIdx].win_pct) bestIdx = i;
+    if (t.win_pct < MODEL.teams[worstIdx].win_pct) worstIdx = i;
+  });
+  homeSel.value = bestIdx;
+  awaySel.value = worstIdx;
+}
+
+function updateScoreboard(){
+  const homeSel = document.getElementById("home-select");
+  const awaySel = document.getElementById("away-select");
+  const home = MODEL.teams[Number(homeSel.value)];
+  const away = MODEL.teams[Number(awaySel.value)];
+
+  document.getElementById("sb-home-name").textContent = teamLabel(home);
+  document.getElementById("sb-away-name").textContent = teamLabel(away);
+
+  if (home === away || homeSel.value === awaySel.value){
+    document.getElementById("sb-call").textContent = "Pick two different teams to run the model.";
+    return;
+  }
+
+  const pHome = predictHomeWinProb(home, away);
+  const homePct = Math.round(pHome*100);
+  const awayPct = 100 - homePct;
+
+  document.getElementById("sb-home-pct").textContent = homePct;
+  document.getElementById("sb-away-pct").textContent = awayPct;
+  document.getElementById("sb-fill").style.width = homePct + "%";
+
+  const favorite = homePct >= awayPct ? teamLabel(home) : teamLabel(away);
+  const favPct = Math.max(homePct, awayPct);
+  document.getElementById("sb-call").innerHTML =
+    `Model favors <strong>${favorite}</strong> at ${favPct}%.`;
+}
+
+function renderMetrics(){
+  document.getElementById("hero-acc").textContent = (MODEL.metrics.logistic_regression.accuracy*100).toFixed(0)+"%";
+  document.getElementById("hero-auc").textContent = MODEL.metrics.logistic_regression.auc.toFixed(2);
+  document.getElementById("hero-games").textContent = MODEL.metrics.n_games.toLocaleString();
+
+  document.getElementById("m-lr-acc").textContent = (MODEL.metrics.logistic_regression.accuracy*100).toFixed(1)+"%";
+  document.getElementById("m-lr-auc").textContent = MODEL.metrics.logistic_regression.auc.toFixed(3);
+  document.getElementById("m-rf-acc").textContent = (MODEL.metrics.random_forest.accuracy*100).toFixed(1)+"%";
+  document.getElementById("m-rf-auc").textContent = MODEL.metrics.random_forest.auc.toFixed(3);
+  document.getElementById("seasons-note").textContent =
+    `Trained on ${MODEL.metrics.n_games.toLocaleString()} games from the ${MODEL.metrics.seasons_used} seasons, using each team's prior-year stats.`;
+}
+
+function renderBars(){
+  const container = document.getElementById("bars");
+  const entries = Object.entries(MODEL.rf_importances)
+    .map(([k,v]) => [k.replace("_diff",""), v])
+    .sort((a,b) => b[1]-a[1]);
+  const max = entries[0][1];
+  entries.forEach(([feat, val]) => {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+    row.innerHTML = `
+      <div class="bar-name">${FEATURE_LABELS[feat] || feat}</div>
+      <div class="bar-track"><div class="fill" style="width:${(val/max*100).toFixed(1)}%"></div></div>
+      <div class="bar-val num">${(val*100).toFixed(1)}%</div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+let sortState = { col: "win_pct", dir: -1 };
+
+function renderTable(){
+  const head = document.getElementById("table-head");
+  const cols = ["team", ...MODEL.features];
+  head.innerHTML = "";
+  cols.forEach(col => {
+    const th = document.createElement("th");
+    const label = col === "team" ? "Team" : (FEATURE_LABELS[col] || col);
+    th.innerHTML = label + (sortState.col === col ? `<span class="arrow">${sortState.dir === 1 ? "▲" : "▼"}</span>` : "");
+    th.addEventListener("click", () => {
+      if (sortState.col === col) sortState.dir *= -1;
+      else { sortState.col = col; sortState.dir = -1; }
+      renderTable();
+    });
+    head.appendChild(th);
+  });
+
+  const rows = [...MODEL.teams].sort((a,b) => {
+    const av = a[sortState.col], bv = b[sortState.col];
+    if (typeof av === "string") return sortState.dir * av.localeCompare(bv);
+    return sortState.dir * (av - bv);
+  });
+
+  const body = document.getElementById("table-body");
+  body.innerHTML = "";
+  rows.forEach(t => {
+    const tr = document.createElement("tr");
+    cols.forEach(col => {
+      const td = document.createElement("td");
+      if (col === "team"){ td.textContent = teamLabel(t); }
+      else { td.className = "num"; td.textContent = FMT[col](t[col]); }
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+}
+
+document.getElementById("sb-season").textContent = `Based on each team's ${MODEL.metrics.stats_season} season.`;
+
+populateSelects();
+renderMetrics();
+renderBars();
+renderTable();
+updateScoreboard();
+document.getElementById("home-select").addEventListener("change", updateScoreboard);
+document.getElementById("away-select").addEventListener("change", updateScoreboard);
+</script>
+</body>
+</html>
