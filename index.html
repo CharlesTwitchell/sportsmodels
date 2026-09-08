@@ -3,12 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NFL Win Predictor — a field-side stats model</title>
-<meta name="description" content="A logistic regression model that predicts NFL game winners from common team stats. Pick two teams and see the call.">
+<title>NFL Win Predictor — this week's picks</title>
+<meta name="description" content="A logistic regression model predicts every NFL game each week, then tracks itself against the real results as the season goes on.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏈</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
   :root{
     --turf-deep:#132A20;
@@ -20,9 +21,10 @@
     --gold-dim: rgba(217,169,60,0.35);
     --endzone:#B5402F;
     --endzone-dim: rgba(181,64,47,0.35);
+    --win-green:#4C9A6A;
     --ink:#0E1712;
     --radius: 2px;
-    --max: 1080px;
+    --max: 1120px;
   }
 
   *{box-sizing:border-box;}
@@ -45,16 +47,10 @@
     margin:0;
   }
   .num, .mono{ font-family:'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
-
   a{ color:var(--gold); }
-
   .wrap{ max-width:var(--max); margin:0 auto; padding:0 28px; }
 
-  /* ---------- header ---------- */
-  header.site{
-    padding:26px 0 18px;
-    border-bottom:1px solid var(--turf-line);
-  }
+  header.site{ padding:26px 0 18px; border-bottom:1px solid var(--turf-line); }
   header.site .wrap{ display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
   .mark{ display:flex; align-items:baseline; gap:10px; }
   .mark .ball{ font-size:1.1rem; }
@@ -63,67 +59,62 @@
   header.site nav a{ text-decoration:none; color:var(--chalk-dim); border-bottom:1px solid transparent; padding-bottom:2px; }
   header.site nav a:hover{ color:var(--chalk); border-color:var(--gold-dim); }
 
-  section{ padding:64px 0; border-bottom:1px solid var(--turf-line); }
+  section{ padding:56px 0; border-bottom:1px solid var(--turf-line); }
   section:last-of-type{ border-bottom:none; }
-  section > .wrap > .kicker{
-    font-size:0.85rem; color:var(--gold); margin:0 0 8px;
-  }
+  section > .wrap > .kicker{ font-size:0.85rem; color:var(--gold); margin:0 0 8px; }
   section h2{ font-size:clamp(1.6rem, 3.4vw, 2.3rem); margin-bottom:14px; }
-  section > .wrap > p.lede{ max-width:62ch; color:var(--chalk-dim); font-size:1.02rem; }
+  section > .wrap > p.lede{ max-width:64ch; color:var(--chalk-dim); font-size:1.02rem; }
 
-  /* ---------- hero / predictor ---------- */
-  .hero{ padding-top:56px; }
-  .hero-grid{ display:grid; grid-template-columns: 1.05fr 0.95fr; gap:48px; align-items:start; }
-  @media (max-width:860px){ .hero-grid{ grid-template-columns:1fr; } }
+  /* ---------- this-week hero ---------- */
+  .hero{ padding-top:44px; }
+  .week-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:26px; }
+  .week-head h1{ font-size:clamp(2rem, 4.6vw, 3.1rem); line-height:1.05; }
+  .week-sub{ color:var(--chalk-dim); font-size:0.95rem; margin-top:8px; }
 
-  .hero h1{ font-size:clamp(2.2rem, 5.4vw, 3.6rem); line-height:1.04; max-width:14ch; }
-  .hero p.lede{ margin-top:18px; max-width:46ch; color:var(--chalk-dim); font-size:1.05rem; }
-  .hero .meta{ margin-top:26px; display:flex; gap:28px; flex-wrap:wrap; }
-  .hero .meta div{ min-width:100px; }
-  .hero .meta .num{ font-family:'Anton'; font-size:1.9rem; color:var(--gold); }
-  .hero .meta .lbl{ font-size:0.8rem; color:var(--chalk-dim); margin-top:2px; }
+  .season-record{ background:var(--turf-mid); border-top:3px solid var(--gold); padding:16px 22px; min-width:220px; }
+  .season-record .num{ font-family:'Anton'; font-size:2.1rem; color:var(--gold); }
+  .season-record .lbl{ font-size:0.78rem; color:var(--chalk-dim); margin-top:2px; }
 
-  /* scoreboard */
-  .scoreboard{
-    background:var(--turf-mid);
-    border-top:3px solid var(--gold);
-    padding:26px 24px 24px;
+  .week-nav{ display:flex; align-items:center; gap:12px; margin-bottom:22px; flex-wrap:wrap; }
+  .week-nav button{
+    background:var(--turf-mid); color:var(--chalk); border:1px solid var(--turf-line);
+    padding:8px 14px; font-family:'IBM Plex Mono'; font-size:0.85rem; cursor:pointer; border-radius:var(--radius);
   }
-  .sb-row{ display:flex; align-items:center; gap:10px; }
-  .sb-select{ flex:1; min-width:0; }
-  .sb-select label{ display:block; font-size:0.72rem; color:var(--chalk-dim); margin-bottom:6px; }
-  select{
-    width:100%;
-    background:var(--turf-deep);
-    color:var(--chalk);
-    border:1px solid var(--turf-line);
-    border-radius:var(--radius);
-    padding:10px 10px;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.92rem;
-    appearance:none;
-    -webkit-appearance:none;
-    background-image: linear-gradient(45deg, transparent 50%, var(--gold) 50%), linear-gradient(135deg, var(--gold) 50%, transparent 50%);
-    background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
-    background-size: 5px 5px, 5px 5px;
-    background-repeat:no-repeat;
+  .week-nav button:hover:not(:disabled){ border-color:var(--gold-dim); color:var(--gold); }
+  .week-nav button:disabled{ opacity:0.35; cursor:default; }
+  .week-nav select{
+    background:var(--turf-mid); color:var(--chalk); border:1px solid var(--turf-line);
+    padding:8px 12px; font-family:'IBM Plex Mono'; font-size:0.85rem; border-radius:var(--radius);
   }
-  select:focus-visible, button:focus-visible, input:focus-visible{ outline:2px solid var(--gold); outline-offset:2px; }
-  .sb-vs{ font-family:'Anton'; color:var(--gold-dim); font-size:1rem; padding-top:18px; }
+  .week-nav .current-badge{ font-size:0.78rem; color:var(--gold); border:1px solid var(--gold-dim); padding:4px 10px; border-radius:var(--radius); }
 
-  .sb-readout{ margin-top:22px; }
-  .sb-names{ display:flex; justify-content:space-between; font-size:0.86rem; color:var(--chalk-dim); }
-  .sb-names .home{ color:var(--gold); }
-  .sb-digits{ display:flex; justify-content:space-between; align-items:baseline; margin-top:4px; }
-  .sb-digits .num{ font-family:'Anton'; font-size:clamp(2.6rem, 8vw, 4rem); }
-  .sb-digits .home-num{ color:var(--gold); }
-  .sb-digits .away-num{ color:var(--endzone); }
-  .sb-bar{ height:8px; margin-top:14px; background:var(--endzone-dim); position:relative; overflow:hidden; }
-  .sb-bar .fill{ position:absolute; inset:0 auto 0 0; background:var(--gold); width:50%; transition:width 0.4s ease; }
-  .sb-call{ margin-top:14px; font-size:0.92rem; color:var(--chalk-dim); }
-  .sb-call strong{ color:var(--chalk); }
+  .schedule-wrap{ overflow-x:auto; border-top:1px solid var(--turf-line); }
+  table.schedule{ border-collapse:collapse; width:100%; min-width:640px; }
+  table.schedule th{ text-align:left; font-size:0.75rem; color:var(--gold); font-weight:600; padding:10px 14px; border-bottom:1px solid var(--turf-line); }
+  table.schedule td{ padding:14px; border-bottom:1px solid var(--turf-line); vertical-align:middle; }
+  table.schedule tbody tr:hover td{ background:rgba(217,169,60,0.05); }
 
-  /* ---------- generic layout blocks ---------- */
+  .kickoff{ font-size:0.8rem; color:var(--chalk-dim); white-space:nowrap; }
+  .kickoff .day{ color:var(--chalk); font-weight:600; }
+
+  .matchup{ white-space:nowrap; font-size:0.98rem; }
+  .matchup .at{ color:var(--chalk-dim); margin:0 6px; font-size:0.82rem; }
+
+  .pick{ white-space:nowrap; }
+  .pick .team{ color:var(--gold); font-weight:600; }
+  .pick .pct{ font-family:'IBM Plex Mono'; font-size:0.85rem; color:var(--chalk-dim); margin-left:6px; }
+
+  .result{ white-space:nowrap; font-size:0.9rem; }
+  .result .score{ font-family:'IBM Plex Mono'; }
+  .result .pending{ color:var(--chalk-dim); font-style:italic; }
+  .badge{ display:inline-block; width:18px; height:18px; line-height:18px; text-align:center; border-radius:50%; font-size:0.7rem; margin-left:8px; }
+  .badge.hit{ background:var(--win-green); color:var(--ink); }
+  .badge.miss{ background:var(--endzone); color:var(--chalk); }
+
+  .loading-row, .empty-row{ padding:28px 14px; color:var(--chalk-dim); font-size:0.9rem; text-align:center; }
+  .fetch-error{ margin-top:16px; padding:14px 18px; border-left:3px solid var(--endzone); background:var(--turf-mid); font-size:0.88rem; color:var(--chalk-dim); }
+
+  /* ---------- generic layout blocks (reused) ---------- */
   .metric-row{ display:flex; gap:0; margin-top:36px; flex-wrap:wrap; border-top:1px solid var(--turf-line); }
   .metric{ flex:1; min-width:150px; padding:22px 24px; border-right:1px solid var(--turf-line); }
   .metric:last-child{ border-right:none; }
@@ -135,7 +126,6 @@
   .two-col h3{ font-size:1.05rem; margin-bottom:10px; font-family:'IBM Plex Sans'; font-weight:600; }
   .two-col p{ color:var(--chalk-dim); font-size:0.95rem; }
 
-  /* ---------- feature bars ---------- */
   .bars{ margin-top:34px; }
   .bar-row{ display:grid; grid-template-columns: 190px 1fr 52px; align-items:center; gap:14px; padding:9px 0; border-bottom:1px solid var(--turf-line); }
   .bar-row:first-child{ border-top:1px solid var(--turf-line); }
@@ -148,27 +138,44 @@
     .bar-name{ font-size:0.76rem; }
   }
 
-  /* ---------- table ---------- */
-  .table-wrap{ margin-top:30px; overflow-x:auto; border-top:1px solid var(--turf-line); }
-  table{ border-collapse:collapse; width:100%; min-width:920px; font-size:0.85rem; }
-  th, td{ text-align:right; padding:9px 12px; white-space:nowrap; border-bottom:1px solid var(--turf-line); }
-  th:first-child, td:first-child{ text-align:left; position:sticky; left:0; background:var(--turf-deep); }
-  th{ font-weight:600; color:var(--gold); cursor:pointer; user-select:none; font-size:0.78rem; }
-  th:hover{ color:var(--chalk); }
-  th .arrow{ font-size:0.7em; margin-left:3px; opacity:0.7; }
-  tbody tr:hover td{ background:rgba(217,169,60,0.06); }
-  tbody tr:hover td:first-child{ background:rgba(217,169,60,0.10); }
-
-  /* ---------- methodology ---------- */
-  .note{
-    margin-top:26px;
-    padding:18px 20px;
-    border-left:3px solid var(--gold);
-    background:var(--turf-mid);
-    font-size:0.92rem;
-    color:var(--chalk-dim);
-    max-width:70ch;
+  /* scoreboard (matchup lab) */
+  .scoreboard{ background:var(--turf-mid); border-top:3px solid var(--gold); padding:26px 24px 24px; max-width:520px; }
+  .sb-row{ display:flex; align-items:center; gap:10px; }
+  .sb-select{ flex:1; min-width:0; }
+  .sb-select label{ display:block; font-size:0.72rem; color:var(--chalk-dim); margin-bottom:6px; }
+  select{
+    width:100%; background:var(--turf-deep); color:var(--chalk); border:1px solid var(--turf-line);
+    border-radius:var(--radius); padding:10px 10px; font-family:'IBM Plex Mono', monospace; font-size:0.92rem;
+    appearance:none; -webkit-appearance:none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--gold) 50%), linear-gradient(135deg, var(--gold) 50%, transparent 50%);
+    background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+    background-size: 5px 5px, 5px 5px; background-repeat:no-repeat;
   }
+  select:focus-visible, button:focus-visible, input:focus-visible{ outline:2px solid var(--gold); outline-offset:2px; }
+  .sb-vs{ font-family:'Anton'; color:var(--gold-dim); font-size:1rem; padding-top:18px; }
+  .sb-readout{ margin-top:22px; }
+  .sb-names{ display:flex; justify-content:space-between; font-size:0.86rem; color:var(--chalk-dim); }
+  .sb-names .home{ color:var(--gold); }
+  .sb-digits{ display:flex; justify-content:space-between; align-items:baseline; margin-top:4px; }
+  .sb-digits .num{ font-family:'Anton'; font-size:clamp(2.6rem, 8vw, 4rem); }
+  .sb-digits .home-num{ color:var(--gold); }
+  .sb-digits .away-num{ color:var(--endzone); }
+  .sb-bar{ height:8px; margin-top:14px; background:var(--endzone-dim); position:relative; overflow:hidden; }
+  .sb-bar .fill{ position:absolute; inset:0 auto 0 0; background:var(--gold); width:50%; transition:width 0.4s ease; }
+  .sb-call{ margin-top:14px; font-size:0.92rem; color:var(--chalk-dim); }
+  .sb-call strong{ color:var(--chalk); }
+
+  .table-wrap{ margin-top:30px; overflow-x:auto; border-top:1px solid var(--turf-line); }
+  table.stats{ border-collapse:collapse; width:100%; min-width:920px; font-size:0.85rem; }
+  table.stats th, table.stats td{ text-align:right; padding:9px 12px; white-space:nowrap; border-bottom:1px solid var(--turf-line); }
+  table.stats th:first-child, table.stats td:first-child{ text-align:left; position:sticky; left:0; background:var(--turf-deep); }
+  table.stats th{ font-weight:600; color:var(--gold); cursor:pointer; user-select:none; font-size:0.78rem; }
+  table.stats th:hover{ color:var(--chalk); }
+  table.stats th .arrow{ font-size:0.7em; margin-left:3px; opacity:0.7; }
+  table.stats tbody tr:hover td{ background:rgba(217,169,60,0.06); }
+  table.stats tbody tr:hover td:first-child{ background:rgba(217,169,60,0.10); }
+
+  .note{ margin-top:26px; padding:18px 20px; border-left:3px solid var(--gold); background:var(--turf-mid); font-size:0.92rem; color:var(--chalk-dim); max-width:70ch; }
   .note code{ font-family:'IBM Plex Mono'; background:rgba(0,0,0,0.25); padding:1px 5px; border-radius:2px; color:var(--chalk); font-size:0.88em; }
 
   footer{ padding:32px 0 48px; }
@@ -183,55 +190,51 @@
   <div class="wrap">
     <div class="mark"><span class="ball">🏈</span><span>NFL Win Predictor</span></div>
     <nav>
+      <a href="#week">This week</a>
       <a href="#model">The model</a>
-      <a href="#signals">What matters</a>
+      <a href="#lab">Matchup lab</a>
       <a href="#table">League table</a>
       <a href="#method">Methodology</a>
     </nav>
   </div>
 </header>
 
-<section class="hero">
+<section class="hero" id="week">
   <div class="wrap">
-    <div class="hero-grid">
+    <div class="week-head">
       <div>
-        <h1>Pick two teams.<br>Get the call.</h1>
-        <p class="lede">A logistic regression model reads twelve real box-score stats — yardage, third downs, turnovers, time of possession — pulled from actual NFL play-by-play data, and turns the gap between two teams into a win probability.</p>
-        <div class="meta">
-          <div><div class="num" id="hero-acc">—</div><div class="lbl">Model accuracy</div></div>
-          <div><div class="num" id="hero-auc">—</div><div class="lbl">ROC AUC</div></div>
-          <div><div class="num" id="hero-games">—</div><div class="lbl">Real games trained on</div></div>
-        </div>
+        <h1 id="week-title">Loading this week's schedule…</h1>
+        <div class="week-sub" id="week-sub">Pulling the live NFL schedule.</div>
       </div>
-
-      <div class="scoreboard">
-        <div class="sb-row">
-          <div class="sb-select">
-            <label for="home-select">Home</label>
-            <select id="home-select"></select>
-          </div>
-          <div class="sb-vs">VS</div>
-          <div class="sb-select">
-            <label for="away-select">Away</label>
-            <select id="away-select"></select>
-          </div>
-        </div>
-
-        <div class="sb-readout">
-          <div class="sb-names">
-            <span class="home" id="sb-home-name">—</span>
-            <span class="away" id="sb-away-name">—</span>
-          </div>
-          <div class="sb-digits">
-            <span class="num home-num" id="sb-home-pct">50</span>
-            <span class="num away-num" id="sb-away-pct">50</span>
-          </div>
-          <div class="sb-bar"><div class="fill" id="sb-fill"></div></div>
-          <div class="sb-call" id="sb-call">Pick two teams to run the model.</div>
-          <div class="sb-call" id="sb-season" style="margin-top:2px;"></div>
-        </div>
+      <div class="season-record">
+        <div class="num" id="season-record-num">—</div>
+        <div class="lbl" id="season-record-lbl">Model record this season</div>
       </div>
     </div>
+
+    <div class="week-nav">
+      <button id="week-prev" disabled>&larr; Prev</button>
+      <select id="week-select" disabled></select>
+      <button id="week-next" disabled>Next &rarr;</button>
+      <span class="current-badge" id="current-badge" style="display:none;">Current week</span>
+    </div>
+
+    <div class="schedule-wrap">
+      <table class="schedule">
+        <thead>
+          <tr>
+            <th>Kickoff</th>
+            <th>Matchup</th>
+            <th>Model pick</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody id="week-body">
+          <tr><td colspan="4" class="loading-row">Fetching the schedule from nflverse…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="fetch-error" style="display:none;" class="fetch-error"></div>
   </div>
 </section>
 
@@ -239,7 +242,7 @@
   <div class="wrap">
     <p class="kicker">The model</p>
     <h2>Two models, one question: who wins?</h2>
-    <p class="lede">A logistic regression and a random forest were both trained on the same stat sheet: one team's full season minus the other's, drawn from real NFL play-by-play data. Each team's <em>completed</em> season predicts the <em>following</em> season's games — never its own — so the model is never peeking at results it's trying to predict. Logistic regression powers the live predictor above because its weights are easy to inspect; the random forest is shown here for comparison.</p>
+    <p class="lede">A logistic regression and a random forest were both trained on the same stat sheet: one team's full season minus the other's, drawn from real NFL play-by-play data. Each team's <em>completed</em> season predicts the <em>following</em> season's games — never its own — so the model is never peeking at results it's trying to predict. Logistic regression powers the picks above because its weights are easy to inspect; the random forest is shown here for comparison.</p>
 
     <div class="metric-row">
       <div class="metric"><div class="num" id="m-lr-acc">—</div><div class="lbl">Logistic regression accuracy</div></div>
@@ -255,8 +258,8 @@
         <p>Predicting a season from the season before is a harder problem than it sounds — rosters turn over, coaches change, and last year's numbers only say so much about this year's team. Models that instead use in-season, game-by-game form tend to score higher; this one trades some accuracy for a cleaner, honest test: no stat here was ever generated after the game it's trying to predict.</p>
       </div>
       <div>
-        <h3>Reading the scoreboard</h3>
-        <p>The percentage is the home team's chance to win based on the stat gap between the two teams' most recently completed seasons, plus a standard home-field bump. It is not a point-spread or a score prediction — just a probability.</p>
+        <h3>Reading a pick</h3>
+        <p>The percentage is the favored team's chance to win, based on the stat gap between the two teams' most recently completed seasons plus a standard home-field bump. It is not a point-spread or a score prediction — just a probability.</p>
       </div>
     </div>
   </div>
@@ -271,13 +274,49 @@
   </div>
 </section>
 
+<section id="lab">
+  <div class="wrap">
+    <p class="kicker">Matchup lab</p>
+    <h2>Try any two teams</h2>
+    <p class="lede">Not on this week's schedule, or just curious about a hypothetical? Pick any two teams and run the same model against them.</p>
+
+    <div class="scoreboard" style="margin-top:26px;">
+      <div class="sb-row">
+        <div class="sb-select">
+          <label for="home-select">Home</label>
+          <select id="home-select"></select>
+        </div>
+        <div class="sb-vs">VS</div>
+        <div class="sb-select">
+          <label for="away-select">Away</label>
+          <select id="away-select"></select>
+        </div>
+      </div>
+
+      <div class="sb-readout">
+        <div class="sb-names">
+          <span class="home" id="sb-home-name">—</span>
+          <span class="away" id="sb-away-name">—</span>
+        </div>
+        <div class="sb-digits">
+          <span class="num home-num" id="sb-home-pct">50</span>
+          <span class="num away-num" id="sb-away-pct">50</span>
+        </div>
+        <div class="sb-bar"><div class="fill" id="sb-fill"></div></div>
+        <div class="sb-call" id="sb-call">Pick two teams to run the model.</div>
+        <div class="sb-call" id="sb-season" style="margin-top:2px;"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section id="table">
   <div class="wrap">
     <p class="kicker">League table</p>
     <h2>Every team's stat line</h2>
-    <p class="lede">The season averages behind the predictor above. Click a column to sort.</p>
+    <p class="lede">The season averages the model runs on. Click a column to sort.</p>
     <div class="table-wrap">
-      <table id="team-table">
+      <table class="stats" id="team-table">
         <thead><tr id="table-head"></tr></thead>
         <tbody id="table-body"></tbody>
       </table>
@@ -289,17 +328,18 @@
   <div class="wrap">
     <p class="kicker">Methodology</p>
     <h2>Where this data comes from</h2>
-    <p class="lede">Every number on this page comes from real NFL play-by-play and schedule data, pulled with <a href="https://github.com/nflverse/nfl_data_py" target="_blank" rel="noopener">nfl_data_py</a> (which wraps the open <a href="https://github.com/nflverse" target="_blank" rel="noopener">nflverse</a> data project). The league table below shows each team's actual 2025 season. The model was trained on eleven years of history: every team's completed season, from 2015 through 2024, paired with the games that team played the following year.</p>
+    <p class="lede">Every number on this page comes from real NFL play-by-play and schedule data, pulled with <a href="https://github.com/nflverse/nfl_data_py" target="_blank" rel="noopener">nfl_data_py</a> (which wraps the open <a href="https://github.com/nflverse" target="_blank" rel="noopener">nflverse</a> data project). The league table shows each team's actual most recent completed season. The model was trained on eleven years of history: every team's completed season, from 2015 through 2024, paired with the games that team played the following year.</p>
+    <p class="lede" style="margin-top:14px;">The schedule at the top of the page is <strong>live</strong> — this file has no database of its own. Every time you load the page, it fetches the current NFL schedule directly from nflverse in your browser, figures out which week is in progress (or up next), and checks every past game in the season for a final score. That's also how the season record stays current with zero maintenance: once a game finishes and nflverse publishes the score, this page picks it up on the next load.</p>
     <div class="note">
-      This page is a static export — the training run happens once, offline, and its results (team stats and model weights) are baked into this file so the page can run standalone on GitHub Pages with no server or live data pull. To refresh it with a new season, rerun the pipeline and retrain: <code>python nfl_data_pipeline.py</code> pulls the latest play-by-play and schedules, <code>python train_real_model.py</code> retrains and writes <code>model_export_real.json</code>, and that JSON replaces the <code>MODEL</code> object in this page's script.
+      The model's weights and each team's season stats are trained offline and baked into this file — retraining isn't something a browser should do on every visit. To refresh those with a new season: rerun <code>python nfl_data_pipeline.py</code> then <code>python train_real_model.py</code>, and drop the resulting <code>model_export_real.json</code> into the <code>MODEL</code> object in this page's script. The live schedule and season record need no such update — they track the real NFL calendar automatically.
     </div>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    <span>Built with a logistic regression model on twelve common NFL team stats.</span>
-    <span>Trained on real 2015–2025 NFL data via nfl_data_py.</span>
+    <span>Built with a logistic regression model on twelve real NFL team stats.</span>
+    <span>Schedule and results sync live from nflverse — nothing here is stored.</span>
   </div>
 </footer>
 
@@ -336,19 +376,33 @@ const FMT = {
   penalty_yards_per_game: v => v.toFixed(1),
 };
 
-function teamLabel(t){ return t.team_name || t.team; }
+// nflverse's play-by-play/team-stats data uses each franchise's CURRENT
+// abbreviation retroactively; the schedule CSV uses the abbreviation in use
+// at the time. Normalize so old and new codes always match our team stats.
+const TEAM_ALIASES = { OAK: "LV", SD: "LAC", STL: "LA" };
+const SCHEDULE_URL = "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv";
 
+const teamByAbbr = {};
+MODEL.teams.forEach(t => teamByAbbr[t.team] = t);
+
+function teamLabel(t){ return t.team_name || t.team; }
+function normalizeTeam(code){ return TEAM_ALIASES[code] || code; }
 function sigmoid(x){ return 1/(1+Math.exp(-x)); }
 
-function predictHomeWinProb(homeTeam, awayTeam){
+function predictHomeWinProbByAbbr(homeAbbr, awayAbbr){
+  const home = teamByAbbr[normalizeTeam(homeAbbr)];
+  const away = teamByAbbr[normalizeTeam(awayAbbr)];
+  if (!home || !away) return null;
   let logit = MODEL.log_reg_intercept;
   MODEL.features.forEach((f, i) => {
-    const diff = homeTeam[f] - awayTeam[f];
+    const diff = home[f] - away[f];
     const standardized = (diff - MODEL.scaler_mean[i]) / MODEL.scaler_scale[i];
     logit += MODEL.log_reg_coef[i] * standardized;
   });
   return sigmoid(logit);
 }
+
+/* ---------------- Matchup lab (manual two-team picker) ---------------- */
 
 function populateSelects(){
   const homeSel = document.getElementById("home-select");
@@ -358,7 +412,6 @@ function populateSelects(){
     const o2 = document.createElement("option"); o2.value = i; o2.textContent = teamLabel(t);
     homeSel.appendChild(o1); awaySel.appendChild(o2);
   });
-  // Default to the best- and worst-record teams so the first view shows contrast
   let bestIdx = 0, worstIdx = 0;
   MODEL.teams.forEach((t, i) => {
     if (t.win_pct > MODEL.teams[bestIdx].win_pct) bestIdx = i;
@@ -377,12 +430,12 @@ function updateScoreboard(){
   document.getElementById("sb-home-name").textContent = teamLabel(home);
   document.getElementById("sb-away-name").textContent = teamLabel(away);
 
-  if (home === away || homeSel.value === awaySel.value){
+  if (homeSel.value === awaySel.value){
     document.getElementById("sb-call").textContent = "Pick two different teams to run the model.";
     return;
   }
 
-  const pHome = predictHomeWinProb(home, away);
+  const pHome = predictHomeWinProbByAbbr(home.team, away.team);
   const homePct = Math.round(pHome*100);
   const awayPct = 100 - homePct;
 
@@ -392,21 +445,19 @@ function updateScoreboard(){
 
   const favorite = homePct >= awayPct ? teamLabel(home) : teamLabel(away);
   const favPct = Math.max(homePct, awayPct);
-  document.getElementById("sb-call").innerHTML =
-    `Model favors <strong>${favorite}</strong> at ${favPct}%.`;
+  document.getElementById("sb-call").innerHTML = `Model favors <strong>${favorite}</strong> at ${favPct}%.`;
 }
 
-function renderMetrics(){
-  document.getElementById("hero-acc").textContent = (MODEL.metrics.logistic_regression.accuracy*100).toFixed(0)+"%";
-  document.getElementById("hero-auc").textContent = MODEL.metrics.logistic_regression.auc.toFixed(2);
-  document.getElementById("hero-games").textContent = MODEL.metrics.n_games.toLocaleString();
+/* ---------------- Metrics / bars / league table (static, from training) ---------------- */
 
+function renderMetrics(){
   document.getElementById("m-lr-acc").textContent = (MODEL.metrics.logistic_regression.accuracy*100).toFixed(1)+"%";
   document.getElementById("m-lr-auc").textContent = MODEL.metrics.logistic_regression.auc.toFixed(3);
   document.getElementById("m-rf-acc").textContent = (MODEL.metrics.random_forest.accuracy*100).toFixed(1)+"%";
   document.getElementById("m-rf-auc").textContent = MODEL.metrics.random_forest.auc.toFixed(3);
   document.getElementById("seasons-note").textContent =
     `Trained on ${MODEL.metrics.n_games.toLocaleString()} games from the ${MODEL.metrics.seasons_used} seasons, using each team's prior-year stats.`;
+  document.getElementById("sb-season").textContent = `Based on each team's ${MODEL.metrics.stats_season} season.`;
 }
 
 function renderBars(){
@@ -465,7 +516,193 @@ function renderTable(){
   });
 }
 
-document.getElementById("sb-season").textContent = `Based on each team's ${MODEL.metrics.stats_season} season.`;
+/* ---------------- Live weekly schedule ---------------- */
+
+let SCHEDULE = [];
+let VIEW_SEASON = null;
+let VIEW_WEEK = null;
+let DEFAULT_SEASON = null;
+let DEFAULT_WEEK = null;
+
+function isPlayed(row){
+  return row.home_score !== null && row.home_score !== undefined && row.home_score !== "" && !isNaN(row.home_score);
+}
+
+function findDefaultSeasonWeek(rows){
+  const seasons = [...new Set(rows.map(r => r.season))].sort((a,b) => b-a);
+  const season = seasons[0];
+  const weeks = rows.filter(r => r.season === season).map(r => r.week);
+  const maxWeek = Math.max(...weeks);
+  for (let w = 1; w <= maxWeek; w++){
+    const gamesInWeek = rows.filter(r => r.season === season && r.week === w);
+    if (gamesInWeek.length && !gamesInWeek.every(isPlayed)) return { season, week: w };
+  }
+  return { season, week: maxWeek };
+}
+
+function computeSeasonRecord(season){
+  let correct = 0, total = 0;
+  SCHEDULE.filter(r => r.season === season && r.game_type === "REG" && isPlayed(r)).forEach(r => {
+    const prob = predictHomeWinProbByAbbr(r.home_team, r.away_team);
+    if (prob === null) return;
+    if (r.home_score === r.away_score) return; // ties don't count against or for the model
+    const predictedHome = prob >= 0.5;
+    const actualHome = r.home_score > r.away_score;
+    total++;
+    if (predictedHome === actualHome) correct++;
+  });
+  return { correct, total };
+}
+
+function formatKickoff(row){
+  const d = new Date(row.gameday + "T00:00:00");
+  const dayStr = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  let timeStr = "";
+  if (row.gametime){
+    const [h, m] = String(row.gametime).split(":").map(Number);
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = ((h + 11) % 12) + 1;
+    timeStr = `${h12}:${String(m).padStart(2,"0")} ${ampm} ET`;
+  }
+  return { dayStr, timeStr };
+}
+
+function renderWeekControls(){
+  const select = document.getElementById("week-select");
+  select.innerHTML = "";
+  const weeks = [...new Set(SCHEDULE.filter(r => r.season === VIEW_SEASON && r.game_type === "REG").map(r => r.week))].sort((a,b)=>a-b);
+  weeks.forEach(w => {
+    const o = document.createElement("option");
+    o.value = w; o.textContent = `Week ${w}`;
+    select.appendChild(o);
+  });
+  select.value = VIEW_WEEK;
+  select.disabled = false;
+
+  document.getElementById("week-prev").disabled = VIEW_WEEK <= weeks[0];
+  document.getElementById("week-next").disabled = VIEW_WEEK >= weeks[weeks.length-1];
+
+  const badge = document.getElementById("current-badge");
+  badge.style.display = (VIEW_SEASON === DEFAULT_SEASON && VIEW_WEEK === DEFAULT_WEEK) ? "inline-block" : "none";
+}
+
+function renderWeek(){
+  const games = SCHEDULE
+    .filter(r => r.season === VIEW_SEASON && r.week === VIEW_WEEK && r.game_type === "REG")
+    .sort((a,b) => new Date(a.gameday+"T"+(a.gametime||"00:00")) - new Date(b.gameday+"T"+(b.gametime||"00:00")));
+
+  document.getElementById("week-title").textContent = `Week ${VIEW_WEEK} · ${VIEW_SEASON} season`;
+  const playedCount = games.filter(isPlayed).length;
+  document.getElementById("week-sub").textContent = games.length
+    ? `${games.length} games · ${playedCount} final, ${games.length - playedCount} to play`
+    : "No games found for this week.";
+
+  const body = document.getElementById("week-body");
+  body.innerHTML = "";
+
+  if (!games.length){
+    body.innerHTML = `<tr><td colspan="4" class="empty-row">Nothing scheduled here.</td></tr>`;
+    return;
+  }
+
+  games.forEach(g => {
+    const home = teamByAbbr[normalizeTeam(g.home_team)];
+    const away = teamByAbbr[normalizeTeam(g.away_team)];
+    const tr = document.createElement("tr");
+
+    const { dayStr, timeStr } = formatKickoff(g);
+    const kickoffTd = document.createElement("td");
+    kickoffTd.innerHTML = `<div class="kickoff"><span class="day">${dayStr}</span><br>${timeStr}</div>`;
+
+    const matchupTd = document.createElement("td");
+    matchupTd.innerHTML = `<span class="matchup">${away ? teamLabel(away) : g.away_team}<span class="at">@</span>${home ? teamLabel(home) : g.home_team}</span>`;
+
+    const pickTd = document.createElement("td");
+    const prob = predictHomeWinProbByAbbr(g.home_team, g.away_team);
+    let predictedHome = null;
+    if (prob !== null){
+      predictedHome = prob >= 0.5;
+      const favTeam = predictedHome ? home : away;
+      const favPct = Math.round((predictedHome ? prob : 1-prob) * 100);
+      pickTd.innerHTML = `<span class="pick"><span class="team">${teamLabel(favTeam)}</span><span class="pct">${favPct}%</span></span>`;
+    } else {
+      pickTd.innerHTML = `<span class="pick">—</span>`;
+    }
+
+    const resultTd = document.createElement("td");
+    if (isPlayed(g)){
+      const actualHome = g.home_score > g.away_score;
+      const tie = g.home_score === g.away_score;
+      let badge = "";
+      if (!tie && prob !== null){
+        badge = predictedHome === actualHome
+          ? `<span class="badge hit" title="Model called it">✓</span>`
+          : `<span class="badge miss" title="Model missed it">✗</span>`;
+      }
+      resultTd.innerHTML = `<span class="result"><span class="score">${g.away_score}–${g.home_score}</span>${badge}</span>`;
+    } else {
+      resultTd.innerHTML = `<span class="result pending">Not yet played</span>`;
+    }
+
+    tr.appendChild(kickoffTd);
+    tr.appendChild(matchupTd);
+    tr.appendChild(pickTd);
+    tr.appendChild(resultTd);
+    body.appendChild(tr);
+  });
+}
+
+function renderSeasonRecord(){
+  const { correct, total } = computeSeasonRecord(VIEW_SEASON);
+  document.getElementById("season-record-num").textContent = total ? `${correct}–${total-correct}` : "—";
+  document.getElementById("season-record-lbl").textContent = total
+    ? `Model record this season (${((correct/total)*100).toFixed(1)}%)`
+    : "No completed games yet this season";
+}
+
+function goToWeek(season, week){
+  VIEW_SEASON = season;
+  VIEW_WEEK = week;
+  renderWeekControls();
+  renderWeek();
+  renderSeasonRecord();
+}
+
+async function loadSchedule(){
+  try {
+    const resp = await fetch(SCHEDULE_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    const parsed = Papa.parse(text, { header: true, dynamicTyping: true, skipEmptyLines: true });
+    SCHEDULE = parsed.data.filter(r => r.season && r.game_type === "REG");
+
+    const def = findDefaultSeasonWeek(SCHEDULE);
+    DEFAULT_SEASON = def.season;
+    DEFAULT_WEEK = def.week;
+    goToWeek(def.season, def.week);
+
+    document.getElementById("week-select").addEventListener("change", (e) => {
+      goToWeek(VIEW_SEASON, Number(e.target.value));
+    });
+    document.getElementById("week-prev").addEventListener("click", () => {
+      const weeks = [...new Set(SCHEDULE.filter(r => r.season === VIEW_SEASON).map(r => r.week))].sort((a,b)=>a-b);
+      const idx = weeks.indexOf(VIEW_WEEK);
+      if (idx > 0) goToWeek(VIEW_SEASON, weeks[idx-1]);
+    });
+    document.getElementById("week-next").addEventListener("click", () => {
+      const weeks = [...new Set(SCHEDULE.filter(r => r.season === VIEW_SEASON).map(r => r.week))].sort((a,b)=>a-b);
+      const idx = weeks.indexOf(VIEW_WEEK);
+      if (idx < weeks.length-1) goToWeek(VIEW_SEASON, weeks[idx+1]);
+    });
+  } catch (err) {
+    document.getElementById("week-title").textContent = "Couldn't load this week's schedule";
+    document.getElementById("week-sub").textContent = "";
+    document.getElementById("week-body").innerHTML = `<tr><td colspan="4" class="empty-row">Live schedule unavailable right now.</td></tr>`;
+    const errBox = document.getElementById("fetch-error");
+    errBox.style.display = "block";
+    errBox.textContent = `Couldn't reach the live schedule (${err.message}). Try refreshing, or check your connection — this page needs to reach raw.githubusercontent.com.`;
+  }
+}
 
 populateSelects();
 renderMetrics();
@@ -474,6 +711,8 @@ renderTable();
 updateScoreboard();
 document.getElementById("home-select").addEventListener("change", updateScoreboard);
 document.getElementById("away-select").addEventListener("change", updateScoreboard);
+
+loadSchedule();
 </script>
 </body>
 </html>
