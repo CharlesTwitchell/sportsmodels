@@ -22,6 +22,8 @@
     --endzone:#B5402F;
     --endzone-dim: rgba(181,64,47,0.35);
     --win-green:#4C9A6A;
+    --kalshi:#6FA9C9;
+    --kalshi-dim: rgba(111,169,201,0.35);
     --ink:#0E1712;
     --radius: 2px;
     --max: 1120px;
@@ -89,7 +91,7 @@
   .week-nav .current-badge{ font-size:0.78rem; color:var(--gold); border:1px solid var(--gold-dim); padding:4px 10px; border-radius:var(--radius); }
 
   .schedule-wrap{ overflow-x:auto; border-top:1px solid var(--turf-line); }
-  table.schedule{ border-collapse:collapse; width:100%; min-width:640px; }
+  table.schedule{ border-collapse:collapse; width:100%; min-width:760px; }
   table.schedule th{ text-align:left; font-size:0.75rem; color:var(--gold); font-weight:600; padding:10px 14px; border-bottom:1px solid var(--turf-line); }
   table.schedule td{ padding:14px; border-bottom:1px solid var(--turf-line); vertical-align:middle; }
   table.schedule tbody tr:hover td{ background:rgba(217,169,60,0.05); }
@@ -104,6 +106,14 @@
   .pick .team{ color:var(--gold); font-weight:600; }
   .pick .pct{ font-family:'IBM Plex Mono'; font-size:0.85rem; color:var(--chalk-dim); margin-left:6px; }
 
+  .kalshi-cell{ white-space:nowrap; }
+  .kalshi-cell .team{ color:var(--kalshi); font-weight:600; }
+  .kalshi-cell .pct{ font-family:'IBM Plex Mono'; font-size:0.85rem; color:var(--chalk-dim); margin-left:6px; }
+  .kalshi-cell .unavailable{ color:var(--chalk-dim); font-style:italic; font-size:0.85rem; }
+  .agree-tag{ display:inline-block; margin-left:8px; font-size:0.68rem; padding:2px 6px; border-radius:var(--radius); text-transform:uppercase; letter-spacing:0.03em; }
+  .agree-tag.agree{ background:rgba(76,154,106,0.18); color:var(--win-green); }
+  .agree-tag.diverge{ background:rgba(181,64,47,0.18); color:var(--endzone); }
+
   .result{ white-space:nowrap; font-size:0.9rem; }
   .result .score{ font-family:'IBM Plex Mono'; }
   .result .pending{ color:var(--chalk-dim); font-style:italic; }
@@ -113,6 +123,7 @@
 
   .loading-row, .empty-row{ padding:28px 14px; color:var(--chalk-dim); font-size:0.9rem; text-align:center; }
   .fetch-error{ margin-top:16px; padding:14px 18px; border-left:3px solid var(--endzone); background:var(--turf-mid); font-size:0.88rem; color:var(--chalk-dim); }
+  .kalshi-note{ margin-top:16px; padding:14px 18px; border-left:3px solid var(--kalshi); background:var(--turf-mid); font-size:0.88rem; color:var(--chalk-dim); }
 
   /* ---------- generic layout blocks (reused) ---------- */
   .metric-row{ display:flex; gap:0; margin-top:36px; flex-wrap:wrap; border-top:1px solid var(--turf-line); }
@@ -226,15 +237,17 @@
             <th>Kickoff</th>
             <th>Matchup</th>
             <th>Model pick</th>
+            <th>Kalshi market</th>
             <th>Result</th>
           </tr>
         </thead>
         <tbody id="week-body">
-          <tr><td colspan="4" class="loading-row">Fetching the schedule from nflverse…</td></tr>
+          <tr><td colspan="5" class="loading-row">Fetching the schedule from nflverse…</td></tr>
         </tbody>
       </table>
     </div>
     <div id="fetch-error" style="display:none;" class="fetch-error"></div>
+    <div id="kalshi-note" style="display:none;" class="kalshi-note"></div>
   </div>
 </section>
 
@@ -333,6 +346,7 @@
     <div class="note">
       The model's weights and each team's season stats are trained offline and baked into this file — retraining isn't something a browser should do on every visit. To refresh those with a new season: rerun <code>python nfl_data_pipeline.py</code> then <code>python train_real_model.py</code>, and drop the resulting <code>model_export_real.json</code> into the <code>MODEL</code> object in this page's script. The live schedule and season record need no such update — they track the real NFL calendar automatically.
     </div>
+    <p class="lede" style="margin-top:14px;">The <strong>Kalshi market</strong> column pulls live, real-money odds for the <a href="https://kalshi.com" target="_blank" rel="noopener">Kalshi</a> "NFL Game Winner" markets (series <code>KXNFLGAME</code>) straight from Kalshi's public API, and shows whether the crowd's money agrees or diverges from this model's pick. It's read-only — nothing on this page places or manages any trade. Since this file has no server of its own, that data is fetched directly from your browser; if Kalshi doesn't allow that for a page hosted elsewhere, the column will say so rather than show stale numbers.</p>
   </div>
 </section>
 
@@ -516,6 +530,109 @@ function renderTable(){
   });
 }
 
+/* ---------------- Kalshi market comparison ---------------- */
+
+// Kalshi's public market-data endpoints are documented as not requiring an
+// API key (https://docs.kalshi.com), but this page has no backend of its
+// own to fall back on if Kalshi doesn't send CORS headers to a static site.
+// If the fetch below fails for that reason, the schedule still renders —
+// the Kalshi column just shows "unavailable" and a note explains why.
+const KALSHI_API = "https://external-api.kalshi.com/trade-api/v2";
+const KALSHI_SERIES = "KXNFLGAME";
+const KALSHI_MONTHS = { JAN:0, FEB:1, MAR:2, APR:3, MAY:4, JUN:5, JUL:6, AUG:7, SEP:8, OCT:9, NOV:10, DEC:11 };
+
+let KALSHI_EVENTS = [];
+let kalshiStatus = "loading"; // "loading" | "ok" | "failed"
+
+// Kalshi's own ticker format is a moving target ("the ticker's date is the
+// Eastern game date rather than UTC, teams must be read from sub_title
+// because splitting the ticker is ambiguous" — per public postmortems on
+// third-party Kalshi-odds tooling), so matching leans on the human-readable
+// title/subtitle text Kalshi returns per market rather than parsing tickers
+// for team codes. The ticker is only used to recover the game date.
+function kalshiEventDate(ticker){
+  const m = /^KXNFLGAME-(\d{2})([A-Z]{3})(\d{2})/.exec(ticker || "");
+  if (!m) return null;
+  const month = KALSHI_MONTHS[m[2]];
+  if (month === undefined) return null;
+  return new Date(Date.UTC(2000 + Number(m[1]), month, Number(m[3]), 12));
+}
+
+function teamNickname(team){
+  const parts = (team.team_name || "").toLowerCase().split(/\s+/).filter(Boolean);
+  return parts[parts.length - 1] || "";
+}
+
+function marketMentionsTeam(market, team){
+  const nickname = teamNickname(team);
+  if (!nickname) return false;
+  const hay = [market.yes_sub_title, market.subtitle, market.title].filter(Boolean).join(" ").toLowerCase();
+  return hay.includes(nickname);
+}
+
+function kalshiImpliedYesProb(market){
+  if (!market) return null;
+  if (typeof market.yes_bid_dollars === "number" && typeof market.yes_ask_dollars === "number"
+      && (market.yes_bid_dollars > 0 || market.yes_ask_dollars > 0)){
+    return (market.yes_bid_dollars + market.yes_ask_dollars) / 2;
+  }
+  if (typeof market.yes_bid === "number" && typeof market.yes_ask === "number"
+      && (market.yes_bid > 0 || market.yes_ask > 0)){
+    return (market.yes_bid + market.yes_ask) / 200;
+  }
+  if (typeof market.last_price === "number" && market.last_price > 0){
+    return market.last_price / 100;
+  }
+  return null;
+}
+
+function findKalshiMatch(row){
+  const home = teamByAbbr[normalizeTeam(row.home_team)];
+  const away = teamByAbbr[normalizeTeam(row.away_team)];
+  if (!home || !away) return null;
+  const gameDayMs = new Date(row.gameday + "T12:00:00Z").getTime();
+
+  for (const ev of KALSHI_EVENTS){
+    const markets = ev.markets || [];
+    if (markets.length < 2) continue;
+
+    const evDate = kalshiEventDate(ev.ticker || ev.event_ticker);
+    if (evDate && Math.abs(evDate.getTime() - gameDayMs) > 1.5 * 86400000) continue;
+
+    const homeMarket = markets.find(m => marketMentionsTeam(m, home));
+    const awayMarket = markets.find(m => marketMentionsTeam(m, away));
+    if (homeMarket && awayMarket) return { homeMarket, awayMarket };
+  }
+  return null;
+}
+
+function kalshiHomeWinProb(match){
+  const homeP = kalshiImpliedYesProb(match.homeMarket);
+  const awayP = kalshiImpliedYesProb(match.awayMarket);
+  if (homeP !== null && awayP !== null) return (homeP + (1 - awayP)) / 2;
+  if (homeP !== null) return homeP;
+  if (awayP !== null) return 1 - awayP;
+  return null;
+}
+
+async function loadKalshi(){
+  try {
+    const url = `${KALSHI_API}/events?series_ticker=${KALSHI_SERIES}&status=open&with_nested_markets=true&limit=200`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    KALSHI_EVENTS = data.events || [];
+    kalshiStatus = "ok";
+  } catch (err) {
+    kalshiStatus = "failed";
+    console.warn("Kalshi odds unavailable:", err);
+    const note = document.getElementById("kalshi-note");
+    note.style.display = "block";
+    note.textContent = "Live Kalshi odds aren't loading in your browser right now — most likely Kalshi's API doesn't allow direct cross-origin requests from a static page like this one. The model's own picks above are unaffected.";
+  }
+  if (VIEW_SEASON !== null) renderWeek();
+}
+
 /* ---------------- Live weekly schedule ---------------- */
 
 let SCHEDULE = [];
@@ -601,7 +718,7 @@ function renderWeek(){
   body.innerHTML = "";
 
   if (!games.length){
-    body.innerHTML = `<tr><td colspan="4" class="empty-row">Nothing scheduled here.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="empty-row">Nothing scheduled here.</td></tr>`;
     return;
   }
 
@@ -629,6 +746,30 @@ function renderWeek(){
       pickTd.innerHTML = `<span class="pick">—</span>`;
     }
 
+    const kalshiTd = document.createElement("td");
+    kalshiTd.className = "kalshi-cell";
+    if (kalshiStatus === "loading"){
+      kalshiTd.innerHTML = `<span class="unavailable">Loading…</span>`;
+    } else {
+      const match = findKalshiMatch(g);
+      const kalshiProb = match ? kalshiHomeWinProb(match) : null;
+      if (kalshiProb === null){
+        kalshiTd.innerHTML = `<span class="unavailable">${kalshiStatus === "failed" ? "unavailable" : "no market found"}</span>`;
+      } else {
+        const kalshiHomeFav = kalshiProb >= 0.5;
+        const kalshiFavTeam = kalshiHomeFav ? home : away;
+        const kalshiFavPct = Math.round((kalshiHomeFav ? kalshiProb : 1 - kalshiProb) * 100);
+        let tag = "";
+        if (predictedHome !== null){
+          const agrees = kalshiHomeFav === predictedHome;
+          tag = agrees
+            ? `<span class="agree-tag agree" title="Model and Kalshi favor the same team">agree</span>`
+            : `<span class="agree-tag diverge" title="Model and Kalshi favor different teams">diverge</span>`;
+        }
+        kalshiTd.innerHTML = `<span class="team">${teamLabel(kalshiFavTeam)}</span><span class="pct">${kalshiFavPct}%</span>${tag}`;
+      }
+    }
+
     const resultTd = document.createElement("td");
     if (isPlayed(g)){
       const actualHome = g.home_score > g.away_score;
@@ -647,6 +788,7 @@ function renderWeek(){
     tr.appendChild(kickoffTd);
     tr.appendChild(matchupTd);
     tr.appendChild(pickTd);
+    tr.appendChild(kalshiTd);
     tr.appendChild(resultTd);
     body.appendChild(tr);
   });
@@ -697,7 +839,7 @@ async function loadSchedule(){
   } catch (err) {
     document.getElementById("week-title").textContent = "Couldn't load this week's schedule";
     document.getElementById("week-sub").textContent = "";
-    document.getElementById("week-body").innerHTML = `<tr><td colspan="4" class="empty-row">Live schedule unavailable right now.</td></tr>`;
+    document.getElementById("week-body").innerHTML = `<tr><td colspan="5" class="empty-row">Live schedule unavailable right now.</td></tr>`;
     const errBox = document.getElementById("fetch-error");
     errBox.style.display = "block";
     errBox.textContent = `Couldn't reach the live schedule (${err.message}). Try refreshing, or check your connection — this page needs to reach raw.githubusercontent.com.`;
@@ -713,6 +855,7 @@ document.getElementById("home-select").addEventListener("change", updateScoreboa
 document.getElementById("away-select").addEventListener("change", updateScoreboard);
 
 loadSchedule();
+loadKalshi();
 </script>
 </body>
 </html>
