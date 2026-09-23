@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Performance Dashboard</title>
+<meta name="description" content="Tracks the NFL Win Predictor's logged predictions against real results over time, with a downloadable CSV of every logged game.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --turf-deep:#132A20;
+    --turf-mid:#1D3B2A;
+    --turf-line: rgba(243,241,231,0.14);
+    --chalk:#F3F1E7;
+    --chalk-dim: rgba(243,241,231,0.62);
+    --gold:#D9A93C;
+    --gold-dim: rgba(217,169,60,0.35);
+    --endzone:#B5402F;
+    --win-green:#4C9A6A;
+    --ink:#0E1712;
+    --radius: 2px;
+    --max: 1120px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--turf-deep);
+    color:var(--chalk);
+    font-family:'IBM Plex Sans', system-ui, sans-serif;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{ font-family:'Anton', 'IBM Plex Sans', sans-serif; font-weight:400; letter-spacing:0.01em; color:var(--chalk); margin:0; }
+  .num, .mono{ font-family:'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+  a{ color:var(--gold); }
+  .wrap{ max-width:var(--max); margin:0 auto; padding:0 28px; }
+
+  header.site{ padding:26px 0 18px; border-bottom:1px solid var(--turf-line); }
+  header.site .wrap{ display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .mark{ display:flex; align-items:baseline; gap:10px; }
+  .mark .ball{ font-size:1.1rem; }
+  .mark span{ font-family:'Anton'; font-size:1.35rem; letter-spacing:0.02em; }
+  header.site nav{ display:flex; gap:22px; font-size:0.92rem; }
+  header.site nav a{ text-decoration:none; color:var(--chalk-dim); border-bottom:1px solid transparent; padding-bottom:2px; }
+  header.site nav a:hover, header.site nav a.current{ color:var(--chalk); border-color:var(--gold-dim); }
+
+  section{ padding:40px 0; border-bottom:1px solid var(--turf-line); }
+  section:last-of-type{ border-bottom:none; }
+  .kicker{ font-size:0.85rem; color:var(--gold); margin:0 0 8px; }
+  h2{ font-size:clamp(1.5rem, 3.2vw, 2.1rem); margin-bottom:10px; }
+  p.lede{ max-width:70ch; color:var(--chalk-dim); font-size:1rem; }
+
+  /* ---------- filters ---------- */
+  .filters{ display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-top:22px; padding-bottom:22px; border-bottom:1px solid var(--turf-line); }
+  .filter-field{ display:flex; flex-direction:column; gap:6px; }
+  .filter-field label{ font-size:0.72rem; color:var(--chalk-dim); text-transform:uppercase; letter-spacing:0.04em; }
+  select, input[type="date"]{
+    background:var(--turf-mid); color:var(--chalk); border:1px solid var(--turf-line);
+    border-radius:var(--radius); padding:9px 10px; font-family:'IBM Plex Mono', monospace; font-size:0.85rem;
+  }
+  select:focus-visible, input:focus-visible, button:focus-visible, [tabindex]:focus-visible{ outline:2px solid var(--gold); outline-offset:2px; }
+  .btn{
+    background:var(--gold); color:var(--ink); border:none; border-radius:var(--radius);
+    padding:10px 18px; font-family:'IBM Plex Sans'; font-weight:600; font-size:0.88rem; cursor:pointer;
+  }
+  .btn:hover{ background:#e8b850; }
+  .btn.secondary{ background:transparent; border:1px solid var(--gold-dim); color:var(--gold); }
+  .btn.secondary:hover{ border-color:var(--gold); }
+
+  /* ---------- KPI tiles ---------- */
+  .metric-row{ display:flex; gap:0; margin-top:28px; flex-wrap:wrap; border-top:1px solid var(--turf-line); }
+  .metric{ flex:1; min-width:160px; padding:20px 22px; border-right:1px solid var(--turf-line); border-bottom:1px solid var(--turf-line); }
+  .metric:last-child{ border-right:none; }
+  .metric .num{ font-family:'Anton'; font-size:2rem; color:var(--gold); }
+  .metric .lbl{ font-size:0.8rem; color:var(--chalk-dim); margin-top:4px; }
+
+  /* ---------- charts ---------- */
+  .chart-card{ margin-top:30px; }
+  .chart-card h3{ font-family:'IBM Plex Sans'; font-weight:600; font-size:1rem; margin-bottom:4px; }
+  .chart-sub{ font-size:0.85rem; color:var(--chalk-dim); margin-bottom:14px; }
+  .chart-scroll{ overflow-x:auto; }
+  .chart-scroll svg{ display:block; min-width:640px; width:100%; height:auto; }
+  .legend{ display:flex; gap:18px; margin-bottom:10px; flex-wrap:wrap; }
+  .legend-item{ display:flex; align-items:center; gap:7px; font-size:0.82rem; color:var(--chalk-dim); }
+  .legend-key{ width:16px; height:2px; border-radius:1px; display:inline-block; }
+  .legend-swatch{ width:11px; height:11px; border-radius:2px; display:inline-block; }
+
+  .axis-line{ stroke:var(--turf-line); stroke-width:1; }
+  .axis-text{ fill:var(--chalk-dim); font-family:'IBM Plex Mono'; font-size:10px; }
+  .hit-target{ fill:transparent; cursor:pointer; }
+  .crosshair{ stroke:var(--gold-dim); stroke-width:1; pointer-events:none; }
+
+  .chart-tooltip{
+    position:fixed; pointer-events:none; z-index:50; display:none;
+    background:var(--turf-mid); border:1px solid var(--gold-dim); border-radius:var(--radius);
+    padding:10px 12px; font-size:0.8rem; color:var(--chalk-dim); box-shadow:0 6px 18px rgba(0,0,0,0.35);
+    max-width:220px;
+  }
+  .chart-tooltip .tt-title{ color:var(--chalk); font-weight:600; margin-bottom:6px; font-size:0.82rem; }
+  .chart-tooltip .tt-row{ display:flex; justify-content:space-between; gap:12px; }
+  .chart-tooltip .tt-row + .tt-row{ margin-top:3px; }
+  .chart-tooltip .tt-val{ font-family:'IBM Plex Mono'; color:var(--chalk); font-weight:600; }
+
+  /* ---------- table ---------- */
+  .table-wrap{ margin-top:30px; overflow-x:auto; border-top:1px solid var(--turf-line); }
+  table.stats{ border-collapse:collapse; width:100%; min-width:760px; font-size:0.85rem; }
+  table.stats th, table.stats td{ text-align:right; padding:9px 12px; white-space:nowrap; border-bottom:1px solid var(--turf-line); }
+  table.stats th:first-child, table.stats td:first-child{ text-align:left; }
+  table.stats th{ font-weight:600; color:var(--gold); font-size:0.78rem; }
+  table.stats tbody tr:hover td{ background:rgba(217,169,60,0.06); }
+  table.stats .hit{ color:var(--win-green); }
+  table.stats .miss{ color:var(--endzone); }
+  table.stats .tie{ color:var(--chalk-dim); font-style:italic; }
+
+  .empty-note{ padding:24px; text-align:center; color:var(--chalk-dim); font-size:0.9rem; border:1px dashed var(--turf-line); border-radius:var(--radius); margin-top:20px; }
+  .note{ margin-top:26px; padding:18px 20px; border-left:3px solid var(--gold); background:var(--turf-mid); font-size:0.9rem; color:var(--chalk-dim); max-width:70ch; }
+  .note code{ font-family:'IBM Plex Mono'; background:rgba(0,0,0,0.25); padding:1px 5px; border-radius:2px; color:var(--chalk); font-size:0.88em; }
+
+  footer{ padding:32px 0 48px; }
+  footer .wrap{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; font-size:0.82rem; color:var(--chalk-dim); }
+  ::selection{ background:var(--gold); color:var(--ink); }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <div class="mark"><span class="ball">📊</span><span>Model Performance</span></div>
+    <nav>
+      <a href="index.html">This week</a>
+      <a href="index.html#method">Methodology</a>
+      <a href="dashboard.html" class="current">Dashboard</a>
+    </nav>
+  </div>
+</header>
+
+<section id="dashboard">
+  <div class="wrap">
+    <p class="kicker">Reporting</p>
+    <h2>Logged predictions vs. real results</h2>
+    <p class="lede">Every row below was written once, right after a game finished, and never recomputed — even if a model gets retrained later, its past record here stays exactly what it actually predicted at the time. As more models and sports come online, they'll show up in the filters below automatically.</p>
+
+    <div class="filters">
+      <div class="filter-field">
+        <label for="f-sport">Sport</label>
+        <select id="f-sport"></select>
+      </div>
+      <div class="filter-field">
+        <label for="f-model">Model</label>
+        <select id="f-model"></select>
+      </div>
+      <div class="filter-field">
+        <label for="f-range-mode">Range</label>
+        <select id="f-range-mode">
+          <option value="season">Season</option>
+          <option value="week">Specific week</option>
+          <option value="custom">Custom date range</option>
+        </select>
+      </div>
+      <div class="filter-field" id="f-season-wrap">
+        <label for="f-season">Season</label>
+        <select id="f-season"></select>
+      </div>
+      <div class="filter-field" id="f-week-wrap" style="display:none;">
+        <label for="f-week">Week</label>
+        <select id="f-week"></select>
+      </div>
+      <div class="filter-field" id="f-from-wrap" style="display:none;">
+        <label for="f-from">From</label>
+        <input type="date" id="f-from">
+      </div>
+      <div class="filter-field" id="f-to-wrap" style="display:none;">
+        <label for="f-to">To</label>
+        <input type="date" id="f-to">
+      </div>
+      <div class="filter-field">
+        <button class="btn" id="btn-download">Download CSV</button>
+      </div>
+    </div>
+
+    <div id="content-area">
+      <div class="metric-row" id="kpi-row"></div>
+
+      <div class="chart-card">
+        <h3>Accuracy over time</h3>
+        <div class="chart-sub" id="line-chart-sub">Weekly and cumulative accuracy for the selected range.</div>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-key" style="background:var(--gold);"></span>Cumulative accuracy</span>
+          <span class="legend-item"><span class="legend-key" style="background:var(--chalk-dim);"></span>Weekly accuracy</span>
+        </div>
+        <div class="chart-scroll"><svg id="line-chart" viewBox="0 0 900 300" role="img" aria-label="Line chart of weekly and cumulative model accuracy"></svg></div>
+      </div>
+
+      <div class="chart-card">
+        <h3>Correct vs. incorrect picks by week</h3>
+        <div class="chart-sub">Count of games the model got right or wrong, per week.</div>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--win-green);"></span>Correct</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--endzone);"></span>Incorrect</span>
+        </div>
+        <div class="chart-scroll"><svg id="bar-chart" viewBox="0 0 900 260" role="img" aria-label="Bar chart of correct and incorrect picks per week"></svg></div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="stats" id="log-table">
+          <thead><tr><th>Date</th><th>Season</th><th>Week</th><th>Matchup</th><th>Pick</th><th>Prob</th><th>Result</th><th>Outcome</th></tr></thead>
+          <tbody id="log-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="empty-note" id="empty-note" style="display:none;">No logged games in this range yet.</div>
+
+    <div class="note">
+      This page reads <code>data/results_log.json</code> directly — a permanent, append-only log written by <code>scripts/log_results.py</code>, which a scheduled GitHub Action runs automatically after each week's games finish (see <code>.github/workflows/log_results.yml</code>). Nothing on this page recomputes past predictions; it only ever displays what was logged.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Reporting layer for the NFL Win Predictor.</span>
+    <span><a href="index.html">Back to this week's picks →</a></span>
+  </div>
+</footer>
+
+<div class="chart-tooltip" id="tooltip"></div>
+
+<script>
+const LOG_URL = "data/results_log.json";
+let ALL_ROWS = [];
+let FILTERED_ROWS = [];
+
+function fmtPct(x){ return (x*100).toFixed(1) + "%"; }
+function fmtDate(iso){
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+async function loadLog(){
+  try {
+    const resp = await fetch(LOG_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    ALL_ROWS = await resp.json();
+  } catch (err) {
+    console.error("Failed to load results log:", err);
+    document.getElementById("content-area").style.display = "none";
+    const note = document.getElementById("empty-note");
+    note.style.display = "block";
+    note.textContent = `Couldn't load ${LOG_URL} (${err.message}).`;
+    return;
+  }
+  populateFilters();
+  applyFilters();
+}
+
+/* ---------------- filters ---------------- */
+
+function uniqueSorted(arr){ return [...new Set(arr)].sort(); }
+
+function populateFilters(){
+  const sports = uniqueSorted(ALL_ROWS.map(r => r.sport));
+  const sportSel = document.getElementById("f-sport");
+  sportSel.innerHTML = "";
+  sports.forEach(s => { const o = document.createElement("option"); o.value = s; o.textContent = s; sportSel.appendChild(o); });
+
+  const modelSel = document.getElementById("f-model");
+  function refreshModels(){
+    const sport = sportSel.value;
+    const models = uniqueSorted(ALL_ROWS.filter(r => r.sport === sport).map(r => r.model_id));
+    modelSel.innerHTML = "";
+    const allOpt = document.createElement("option"); allOpt.value = ""; allOpt.textContent = "All models";
+    modelSel.appendChild(allOpt);
+    models.forEach(m => { const o = document.createElement("option"); o.value = m; o.textContent = m; modelSel.appendChild(o); });
+  }
+  refreshModels();
+  sportSel.addEventListener("change", () => { refreshModels(); applyFilters(); });
+  modelSel.addEventListener("change", applyFilters);
+
+  const seasonSel = document.getElementById("f-season");
+  const seasons = uniqueSorted(ALL_ROWS.map(r => r.season)).reverse();
+  seasonSel.innerHTML = "";
+  seasons.forEach(s => { const o = document.createElement("option"); o.value = s; o.textContent = s; seasonSel.appendChild(o); });
+  seasonSel.addEventListener("change", () => { refreshWeeks(); applyFilters(); });
+
+  const weekSel = document.getElementById("f-week");
+  function refreshWeeks(){
+    const season = Number(seasonSel.value);
+    const weeks = uniqueSorted(ALL_ROWS.filter(r => r.season === season).map(r => r.week)).reverse();
+    weekSel.innerHTML = "";
+    weeks.forEach(w => { const o = document.createElement("option"); o.value = w; o.textContent = `Week ${w}`; weekSel.appendChild(o); });
+  }
+  refreshWeeks();
+  weekSel.addEventListener("change", applyFilters);
+
+  const rangeMode = document.getElementById("f-range-mode");
+  rangeMode.addEventListener("change", () => {
+    document.getElementById("f-season-wrap").style.display = rangeMode.value === "season" ? "flex" : "none";
+    document.getElementById("f-week-wrap").style.display = rangeMode.value === "week" ? "flex" : "none";
+    document.getElementById("f-from-wrap").style.display = rangeMode.value === "custom" ? "flex" : "none";
+    document.getElementById("f-to-wrap").style.display = rangeMode.value === "custom" ? "flex" : "none";
+    applyFilters();
+  });
+
+  const dates = ALL_ROWS.map(r => r.gameday).sort();
+  if (dates.length){
+    document.getElementById("f-from").value = dates[0];
+    document.getElementById("f-to").value = dates[dates.length - 1];
+  }
+  document.getElementById("f-from").addEventListener("change", applyFilters);
+  document.getElementById("f-to").addEventListener("change", applyFilters);
+
+  document.getElementById("btn-download").addEventListener("click", downloadCSV);
+}
+
+function applyFilters(){
+  const sport = document.getElementById("f-sport").value;
+  const model = document.getElementById("f-model").value;
+  const rangeMode = document.getElementById("f-range-mode").value;
+
+  let rows = ALL_ROWS.filter(r => r.sport === sport);
+  if (model) rows = rows.filter(r => r.model_id === model);
+
+  if (rangeMode === "season"){
+    const season = Number(document.getElementById("f-season").value);
+    rows = rows.filter(r => r.season === season);
+  } else if (rangeMode === "week"){
+    const season = Number(document.getElementById("f-season").value);
+    const week = Number(document.getElementById("f-week").value);
+    rows = rows.filter(r => r.season === season && r.week === week);
+  } else {
+    const from = document.getElementById("f-from").value;
+    const to = document.getElementById("f-to").value;
+    if (from) rows = rows.filter(r => r.gameday >= from);
+    if (to) rows = rows.filter(r => r.gameday <= to);
+  }
+
+  rows.sort((a, b) => a.gameday.localeCompare(b.gameday) || a.game_id.localeCompare(b.game_id));
+  FILTERED_ROWS = rows;
+  render();
+}
+
+/* ---------------- aggregation ---------------- */
+
+function buildWeeklyStats(rows){
+  const byWeek = new Map();
+  rows.forEach(r => {
+    const key = `${r.season}-${r.week}`;
+    if (!byWeek.has(key)) byWeek.set(key, { season: r.season, week: r.week, correct: 0, incorrect: 0, tie: 0 });
+    const bucket = byWeek.get(key);
+    if (r.correct === true) bucket.correct++;
+    else if (r.correct === false) bucket.incorrect++;
+    else bucket.tie++;
+  });
+  const weeks = [...byWeek.values()].sort((a, b) => a.season - b.season || a.week - b.week);
+  let cumCorrect = 0, cumDecided = 0;
+  weeks.forEach(w => {
+    const decided = w.correct + w.incorrect;
+    w.weeklyAcc = decided ? w.correct / decided : null;
+    cumCorrect += w.correct;
+    cumDecided += decided;
+    w.cumAcc = cumDecided ? cumCorrect / cumDecided : null;
+    w.label = `S${w.season} W${w.week}`;
+  });
+  return weeks;
+}
+
+/* ---------------- KPIs ---------------- */
+
+function renderKPIs(rows){
+  const decided = rows.filter(r => r.correct !== null);
+  const correct = decided.filter(r => r.correct === true).length;
+  const incorrect = decided.filter(r => r.correct === false).length;
+  const ties = rows.length - decided.length;
+  const accuracy = decided.length ? correct / decided.length : null;
+  const brier = decided.length
+    ? decided.reduce((sum, r) => {
+        const actual = r.actual_winner === r.home_team ? 1 : 0;
+        return sum + Math.pow(r.home_win_prob - actual, 2);
+      }, 0) / decided.length
+    : null;
+
+  const tiles = [
+    { num: decided.length ? `${correct}-${incorrect}${ties ? "-" + ties : ""}` : "—", lbl: "Record" },
+    { num: accuracy !== null ? fmtPct(accuracy) : "—", lbl: "Accuracy" },
+    { num: brier !== null ? brier.toFixed(3) : "—", lbl: "Brier score (lower is better)" },
+    { num: String(rows.length), lbl: "Games logged" },
+  ];
+  const row = document.getElementById("kpi-row");
+  row.innerHTML = "";
+  tiles.forEach(t => {
+    const div = document.createElement("div");
+    div.className = "metric";
+    div.innerHTML = `<div class="num">${t.num}</div><div class="lbl">${t.lbl}</div>`;
+    row.appendChild(div);
+  });
+}
+
+/* ---------------- tooltip helper ---------------- */
+
+const tooltip = document.getElementById("tooltip");
+function showTooltip(x, y, html){
+  tooltip.innerHTML = html;
+  tooltip.style.display = "block";
+  const rect = tooltip.getBoundingClientRect();
+  let left = x + 14, top = y - rect.height / 2;
+  if (left + rect.width > window.innerWidth - 8) left = x - rect.width - 14;
+  top = Math.max(8, Math.min(top, window.innerHeight - rect.height - 8));
+  tooltip.style.left = left + "px";
+  tooltip.style.top = top + "px";
+}
+function hideTooltip(){ tooltip.style.display = "none"; }
+
+/* ---------------- line chart (weekly + cumulative accuracy) ---------------- */
+
+function renderLineChart(weeks){
+  const svg = document.getElementById("line-chart");
+  svg.innerHTML = "";
+  const W = 900, H = 300, padL = 40, padR = 16, padT = 16, padB = 34;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  if (!weeks.length){
+    svg.innerHTML = `<text x="${W/2}" y="${H/2}" text-anchor="middle" class="axis-text">No data in this range</text>`;
+    return;
+  }
+
+  const x = i => padL + (weeks.length === 1 ? plotW / 2 : (i / (weeks.length - 1)) * plotW);
+  const y = v => padT + (1 - v) * plotH;
+
+  const ns = "http://www.w3.org/2000/svg";
+  function el(tag, attrs){
+    const e = document.createElementNS(ns, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  // gridlines (0%, 25%, 50%, 75%, 100%)
+  [0, 0.25, 0.5, 0.75, 1].forEach(v => {
+    svg.appendChild(el("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), class: "axis-line" }));
+    const t = el("text", { x: padL - 8, y: y(v) + 3, "text-anchor": "end", class: "axis-text" });
+    t.textContent = Math.round(v * 100) + "%";
+    svg.appendChild(t);
+  });
+
+  // x-axis labels (thin out if crowded)
+  const labelStep = Math.max(1, Math.ceil(weeks.length / 12));
+  weeks.forEach((w, i) => {
+    if (i % labelStep !== 0 && i !== weeks.length - 1) return;
+    const anchor = i === 0 ? "start" : (i === weeks.length - 1 ? "end" : "middle");
+    const t = el("text", { x: x(i), y: H - padB + 16, "text-anchor": anchor, class: "axis-text" });
+    t.textContent = w.label;
+    svg.appendChild(t);
+  });
+
+  function path(values, color){
+    const pts = values.map((w, i) => w.v === null ? null : [x(i), y(w.v)]).filter(Boolean);
+    if (pts.length < 2) return null;
+    const d = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+    return el("path", { d, fill: "none", stroke: color, "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" });
+  }
+
+  const weeklySeries = weeks.map(w => ({ v: w.weeklyAcc }));
+  const cumSeries = weeks.map(w => ({ v: w.cumAcc }));
+  const weeklyPath = path(weeklySeries, "var(--chalk-dim)");
+  const cumPath = path(cumSeries, "var(--gold)");
+  if (weeklyPath) { weeklyPath.setAttribute("stroke", "rgba(243,241,231,0.45)"); svg.appendChild(weeklyPath); }
+  if (cumPath) svg.appendChild(cumPath);
+
+  // end dots for cumulative
+  weeks.forEach((w, i) => {
+    if (w.cumAcc === null) return;
+    svg.appendChild(el("circle", { cx: x(i), cy: y(w.cumAcc), r: 4, fill: "var(--gold)", stroke: "var(--turf-deep)", "stroke-width": 2 }));
+  });
+
+  // crosshair + hit targets
+  const crosshair = el("line", { class: "crosshair", x1: 0, x2: 0, y1: padT, y2: H - padB, style: "display:none;" });
+  svg.appendChild(crosshair);
+
+  weeks.forEach((w, i) => {
+    const hit = el("rect", {
+      class: "hit-target", x: x(i) - (plotW / weeks.length) / 2, y: padT,
+      width: Math.max(plotW / weeks.length, 4), height: plotH, tabindex: "0",
+      "aria-label": `${w.label}: weekly ${w.weeklyAcc !== null ? fmtPct(w.weeklyAcc) : "n/a"}, cumulative ${w.cumAcc !== null ? fmtPct(w.cumAcc) : "n/a"}`,
+    });
+    function show(evt){
+      crosshair.style.display = "block";
+      crosshair.setAttribute("x1", x(i)); crosshair.setAttribute("x2", x(i));
+      const px = evt.clientX !== undefined ? evt.clientX : hit.getBoundingClientRect().left;
+      const py = evt.clientY !== undefined ? evt.clientY : hit.getBoundingClientRect().top;
+      showTooltip(px, py, `
+        <div class="tt-title">${w.label}</div>
+        <div class="tt-row"><span>Cumulative</span><span class="tt-val">${w.cumAcc !== null ? fmtPct(w.cumAcc) : "—"}</span></div>
+        <div class="tt-row"><span>This week</span><span class="tt-val">${w.weeklyAcc !== null ? fmtPct(w.weeklyAcc) : "—"}</span></div>
+        <div class="tt-row"><span>Record this week</span><span class="tt-val">${w.correct}-${w.incorrect}${w.tie ? "-" + w.tie : ""}</span></div>
+      `);
+    }
+    hit.addEventListener("pointermove", show);
+    hit.addEventListener("pointerenter", show);
+    hit.addEventListener("focus", show);
+    hit.addEventListener("pointerleave", () => { crosshair.style.display = "none"; hideTooltip(); });
+    hit.addEventListener("blur", () => { crosshair.style.display = "none"; hideTooltip(); });
+    svg.appendChild(hit);
+  });
+}
+
+/* ---------------- bar chart (correct vs incorrect per week) ---------------- */
+
+function renderBarChart(weeks){
+  const svg = document.getElementById("bar-chart");
+  svg.innerHTML = "";
+  const W = 900, H = 260, padL = 34, padR = 16, padT = 16, padB = 34;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  if (!weeks.length){
+    svg.innerHTML = `<text x="${W/2}" y="${H/2}" text-anchor="middle" class="axis-text">No data in this range</text>`;
+    return;
+  }
+
+  const maxTotal = Math.max(1, ...weeks.map(w => w.correct + w.incorrect + w.tie));
+  const ns = "http://www.w3.org/2000/svg";
+  function el(tag, attrs){
+    const e = document.createElementNS(ns, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  [0, 0.5, 1].forEach(v => {
+    const yy = padT + (1 - v) * plotH;
+    svg.appendChild(el("line", { x1: padL, x2: W - padR, y1: yy, y2: yy, class: "axis-line" }));
+    const t = el("text", { x: padL - 8, y: yy + 3, "text-anchor": "end", class: "axis-text" });
+    t.textContent = Math.round(v * maxTotal);
+    svg.appendChild(t);
+  });
+
+  const slot = plotW / weeks.length;
+  const barW = Math.min(24, slot * 0.55);
+  const gap = 2;
+
+  weeks.forEach((w, i) => {
+    const cx = padL + slot * (i + 0.5);
+    const total = w.correct + w.incorrect + w.tie;
+
+    const labelStep = Math.max(1, Math.ceil(weeks.length / 14));
+    if (i % labelStep === 0 || i === weeks.length - 1){
+      const t = el("text", { x: cx, y: H - padB + 16, "text-anchor": "middle", class: "axis-text" });
+      t.textContent = w.label;
+      svg.appendChild(t);
+    }
+
+    const segs = [
+      { n: w.correct, color: "var(--win-green)", name: "Correct" },
+      { n: w.incorrect, color: "var(--endzone)", name: "Incorrect" },
+    ];
+    let yCursor = padT + plotH;
+    const group = el("g", {});
+    segs.forEach(seg => {
+      if (!seg.n) return;
+      const segH = (seg.n / maxTotal) * plotH - gap;
+      const y0 = yCursor - Math.max(segH, 0);
+      group.appendChild(el("rect", {
+        x: cx - barW / 2, y: y0, width: barW, height: Math.max(segH, 0),
+        rx: 3, fill: seg.color,
+      }));
+      yCursor -= (seg.n / maxTotal) * plotH;
+    });
+    svg.appendChild(group);
+
+    const hit = el("rect", {
+      class: "hit-target", x: cx - slot / 2, y: padT, width: slot, height: plotH, tabindex: "0",
+      "aria-label": `${w.label}: ${w.correct} correct, ${w.incorrect} incorrect${w.tie ? `, ${w.tie} tie` : ""}`,
+    });
+    function show(evt){
+      const px = evt.clientX !== undefined ? evt.clientX : hit.getBoundingClientRect().left;
+      const py = evt.clientY !== undefined ? evt.clientY : hit.getBoundingClientRect().top;
+      showTooltip(px, py, `
+        <div class="tt-title">${w.label}</div>
+        <div class="tt-row"><span>Correct</span><span class="tt-val">${w.correct}</span></div>
+        <div class="tt-row"><span>Incorrect</span><span class="tt-val">${w.incorrect}</span></div>
+        ${w.tie ? `<div class="tt-row"><span>Tie (excluded)</span><span class="tt-val">${w.tie}</span></div>` : ""}
+        <div class="tt-row"><span>Total</span><span class="tt-val">${total}</span></div>
+      `);
+    }
+    hit.addEventListener("pointermove", show);
+    hit.addEventListener("pointerenter", show);
+    hit.addEventListener("focus", show);
+    hit.addEventListener("pointerleave", hideTooltip);
+    hit.addEventListener("blur", hideTooltip);
+    svg.appendChild(hit);
+  });
+}
+
+/* ---------------- table ---------------- */
+
+function renderTable(rows){
+  const body = document.getElementById("log-table-body");
+  body.innerHTML = "";
+  rows.forEach(r => {
+    const tr = document.createElement("tr");
+    let outcomeHtml, outcomeClass;
+    if (r.correct === null){ outcomeHtml = "Tie"; outcomeClass = "tie"; }
+    else if (r.correct){ outcomeHtml = "Correct"; outcomeClass = "hit"; }
+    else { outcomeHtml = "Incorrect"; outcomeClass = "miss"; }
+
+    tr.innerHTML = `
+      <td>${fmtDate(r.gameday)}</td>
+      <td class="num">${r.season}</td>
+      <td class="num">${r.week}</td>
+      <td>${r.away_team} @ ${r.home_team}</td>
+      <td>${r.predicted_winner}</td>
+      <td class="num">${fmtPct(r.home_win_prob)} home</td>
+      <td class="num">${r.away_score}–${r.home_score}</td>
+      <td class="num ${outcomeClass}">${outcomeHtml}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+/* ---------------- CSV export ---------------- */
+
+function downloadCSV(){
+  if (!FILTERED_ROWS.length){ return; }
+  const cols = ["season","week","gameday","sport","model_id","model_version","away_team","home_team",
+                "away_score","home_score","predicted_winner","home_win_prob","actual_winner","correct","logged_at"];
+  const lines = [cols.join(",")];
+  FILTERED_ROWS.forEach(r => {
+    lines.push(cols.map(c => {
+      const v = r[c];
+      if (v === null || v === undefined) return "";
+      const s = String(v);
+      return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(","));
+  });
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `model_results_${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ---------------- render pipeline ---------------- */
+
+function render(){
+  const empty = document.getElementById("empty-note");
+  const content = document.getElementById("content-area");
+  if (!FILTERED_ROWS.length){
+    content.style.display = "none";
+    empty.style.display = "block";
+    return;
+  }
+  content.style.display = "block";
+  empty.style.display = "none";
+
+  const weekly = buildWeeklyStats(FILTERED_ROWS);
+  renderKPIs(FILTERED_ROWS);
+  renderLineChart(weekly);
+  renderBarChart(weekly);
+  renderTable(FILTERED_ROWS);
+}
+
+loadLog();
+</script>
+</body>
+</html>
