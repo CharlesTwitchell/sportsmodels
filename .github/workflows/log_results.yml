@@ -1,0 +1,31 @@
+name: Log model results
+
+on:
+  schedule:
+    # Tuesday & Friday mornings UTC — catches Sun/Mon games and the Thu game.
+    - cron: "0 10 * * 2,5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run results logger
+        run: python3 scripts/log_results.py
+
+      - name: Commit and push if the log changed
+        run: |
+          if git diff --quiet -- data/results_log.json; then
+            echo "No new results to log."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/results_log.json
+          git commit -m "Log newly completed game results"
+          git push
