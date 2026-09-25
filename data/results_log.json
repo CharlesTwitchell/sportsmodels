@@ -574,5 +574,23 @@
     "actual_winner": "LA",
     "correct": true,
     "logged_at": "2026-09-23T07:42:54Z"
+  },
+  {
+    "model_id": "nfl_logreg_v1",
+    "sport": "NFL",
+    "model_version": "nfl_logreg_v1-2025stats",
+    "season": 2026,
+    "week": 3,
+    "game_id": "2026_03_ATL_GB",
+    "gameday": "2026-09-24",
+    "home_team": "GB",
+    "away_team": "ATL",
+    "home_score": 14.0,
+    "away_score": 35.0,
+    "home_win_prob": 0.5098,
+    "predicted_winner": "GB",
+    "actual_winner": "ATL",
+    "correct": false,
+    "logged_at": "2026-09-25T15:04:22Z"
   }
 ]
