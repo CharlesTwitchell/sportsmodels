@@ -862,5 +862,23 @@
     "actual_winner": "CHI",
     "correct": true,
     "logged_at": "2026-09-29T16:24:07Z"
+  },
+  {
+    "model_id": "nfl_logreg_v1",
+    "sport": "NFL",
+    "model_version": "nfl_logreg_v1-2025stats",
+    "season": 2026,
+    "week": 4,
+    "game_id": "2026_04_PIT_CLE",
+    "gameday": "2026-10-01",
+    "home_team": "CLE",
+    "away_team": "PIT",
+    "home_score": 27.0,
+    "away_score": 24.0,
+    "home_win_prob": 0.4188,
+    "predicted_winner": "PIT",
+    "actual_winner": "CLE",
+    "correct": false,
+    "logged_at": "2026-10-02T16:09:33Z"
   }
 ]
