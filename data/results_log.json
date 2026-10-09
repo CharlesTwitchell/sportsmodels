@@ -1150,5 +1150,23 @@
     "actual_winner": "ATL",
     "correct": true,
     "logged_at": "2026-10-06T16:35:35Z"
+  },
+  {
+    "model_id": "nfl_logreg_v1",
+    "sport": "NFL",
+    "model_version": "nfl_logreg_v1-2025stats",
+    "season": 2026,
+    "week": 5,
+    "game_id": "2026_05_TB_DAL",
+    "gameday": "2026-10-08",
+    "home_team": "DAL",
+    "away_team": "TB",
+    "home_score": 16.0,
+    "away_score": 24.0,
+    "home_win_prob": 0.565,
+    "predicted_winner": "DAL",
+    "actual_winner": "TB",
+    "correct": false,
+    "logged_at": "2026-10-09T16:52:58Z"
   }
 ]
