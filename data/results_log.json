@@ -1420,5 +1420,23 @@
     "actual_winner": "BUF",
     "correct": false,
     "logged_at": "2026-10-13T17:26:23Z"
+  },
+  {
+    "model_id": "nfl_logreg_v1",
+    "sport": "NFL",
+    "model_version": "nfl_logreg_v1-2025stats",
+    "season": 2026,
+    "week": 6,
+    "game_id": "2026_06_SEA_DEN",
+    "gameday": "2026-10-15",
+    "home_team": "DEN",
+    "away_team": "SEA",
+    "home_score": 17.0,
+    "away_score": 14.0,
+    "home_win_prob": 0.515,
+    "predicted_winner": "DEN",
+    "actual_winner": "DEN",
+    "correct": true,
+    "logged_at": "2026-10-16T14:40:11Z"
   }
 ]
