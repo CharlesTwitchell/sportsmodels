@@ -1924,5 +1924,23 @@
     "actual_winner": "DAL",
     "correct": false,
     "logged_at": "2026-10-27T15:47:24Z"
+  },
+  {
+    "model_id": "nfl_logreg_v1",
+    "sport": "NFL",
+    "model_version": "nfl_logreg_v1-2025stats",
+    "season": 2026,
+    "week": 8,
+    "game_id": "2026_08_CAR_GB",
+    "gameday": "2026-10-29",
+    "home_team": "GB",
+    "away_team": "CAR",
+    "home_score": 27.0,
+    "away_score": 19.0,
+    "home_win_prob": 0.6186,
+    "predicted_winner": "GB",
+    "actual_winner": "GB",
+    "correct": true,
+    "logged_at": "2026-10-30T16:35:28Z"
   }
 ]
