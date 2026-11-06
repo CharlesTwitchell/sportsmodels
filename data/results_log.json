@@ -2176,5 +2176,23 @@
     "actual_winner": "CHI",
     "correct": false,
     "logged_at": "2026-11-03T17:38:06Z"
+  },
+  {
+    "model_id": "nfl_logreg_v1",
+    "sport": "NFL",
+    "model_version": "nfl_logreg_v1-2025stats",
+    "season": 2026,
+    "week": 9,
+    "game_id": "2026_09_JAX_BAL",
+    "gameday": "2026-11-05",
+    "home_team": "BAL",
+    "away_team": "JAX",
+    "home_score": 10.0,
+    "away_score": 33.0,
+    "home_win_prob": 0.4746,
+    "predicted_winner": "JAX",
+    "actual_winner": "JAX",
+    "correct": true,
+    "logged_at": "2026-11-06T17:15:17Z"
   }
 ]
